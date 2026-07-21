@@ -24,6 +24,12 @@
   .eyebrow{font-size:11.5px; letter-spacing:2px; color:var(--gold); font-weight:700; text-transform:uppercase;}
   h1{font-family:'Noto Serif KR',serif; font-size:25px; margin:8px 0 6px; color:var(--navy);}
   .subtitle{font-size:13px; color:var(--muted);}
+  .clientinfo{padding:22px 44px 20px; border-bottom:1px solid var(--line); background:#F7F4EC;}
+  .clientinfo .ci-name{font-family:'Noto Serif KR',serif; font-weight:700; font-size:19px; color:var(--navy); margin-bottom:12px;}
+  .clientinfo .ci-grid{display:grid; grid-template-columns:64px 1fr 64px 1fr; gap:6px 16px; font-size:12.3px;}
+  .clientinfo .ci-grid .k{color:var(--muted); white-space:nowrap;}
+  .clientinfo .ci-grid .v{color:var(--ink); font-weight:500;}
+  .clientinfo .ci-grid .v.span3{grid-column:span 3;}
   section{padding:26px 44px 0;}
   h2{font-family:'Noto Serif KR',serif; font-size:15.5px; color:var(--navy); border-left:4px solid var(--gold); padding-left:10px; margin:0 0 14px; display:flex; align-items:center; gap:8px;}
   h2 .no{color:var(--gold);}
@@ -78,8 +84,8 @@
   .swatch{width:11px; height:11px; display:inline-block; border-radius:2px;}
 
   .findings{list-style:none; margin:0; padding:0;}
-  .findings li{padding:11px 14px 11px 42px; margin-bottom:8px; border:1px solid var(--line); background:#fff; position:relative; font-size:12.3px; line-height:1.6;}
-  .findings li .tag{position:absolute; left:13px; top:11px; font-size:10px; font-weight:700; color:#fff; background:var(--gold); padding:1px 6px; border-radius:2px;}
+  .findings li{display:flex; align-items:flex-start; gap:10px; padding:11px 14px; margin-bottom:8px; border:1px solid var(--line); background:#fff; font-size:12.3px; line-height:1.6;}
+  .findings li .tag{flex:0 0 auto; margin-top:2px; font-size:10px; font-weight:700; color:#fff; background:var(--gold); padding:2px 7px; border-radius:2px; white-space:nowrap;}
   .findings li.warn .tag{background:var(--burgundy);}
 
   .toolbar{display:flex; gap:10px; justify-content:center; margin:28px 44px 0;}
@@ -106,7 +112,7 @@
     <div class="contact">032-321-4521 · taxmancall@gmail.com<br>세무대리인 원제우 (사업자등록번호 164-53-00241)</div>
   </div>
 
-  <div class="titleblock">
+  <div class="titleblock no-print">
     <div class="eyebrow">VAT Filing Trend Analysis · Generator</div>
     <h1>부가가치세 신고 추이 분석 보고서 생성기</h1>
     <div class="subtitle">부가가치세 신고서 PDF 업로드 또는 구글 드라이브 연동 → 자동 파싱(검토·보정 가능) → 추이 비교 보고서 · 인쇄용 출력</div>
@@ -186,7 +192,8 @@ async function ensurePdfWorker(){
 }
 
 const FIELD_LABELS = {
-  companyName:'상호(법인명)', bizNo:'사업자등록번호', periodLabel:'신고기간', filedDate:'신고(접수)일',
+  companyName:'상호(법인명)', bizNo:'사업자등록번호', repName:'대표자', address:'사업장 주소',
+  bizType:'업태', bizItem:'종목', periodLabel:'신고기간', filedDate:'신고(접수)일',
   salesInvoice:'과세-세금계산서발급분(1)', salesOther:'과세-기타(4)',
   zeroInvoice:'영세율-세금계산서발급분(5)', zeroOther:'영세율-기타(6)',
   taxBase:'과세표준합계(9)', outputTax:'매출세액㉮',
@@ -197,7 +204,7 @@ const FIELD_LABELS = {
   salesParties:'매출처수', purchaseParties:'매입처수'
 };
 const FIELD_ORDER = Object.keys(FIELD_LABELS);
-const NUM_FIELDS = FIELD_ORDER.filter(k=>!['companyName','bizNo','periodLabel','filedDate'].includes(k));
+const NUM_FIELDS = FIELD_ORDER.filter(k=>!['companyName','bizNo','repName','address','bizType','bizItem','periodLabel','filedDate'].includes(k));
 
 /* ===================== 유틸 ===================== */
 function fmt(n){ if(n===null||n===undefined||isNaN(n)) return ''; return Number(n).toLocaleString('ko-KR'); }
@@ -290,8 +297,9 @@ function parseVatText(text){
 
   // 상호(법인명) 값은 "회사명 대표자명 사업자등록번호 000-00-00000" 행에 있음
   // (라벨 "(법인명)"이 값보다 아래 줄에 오는 레이아웃도 있어 라벨 기준 탐색은 불안정함)
-  m = text.match(/\n([^\n]+?)\s+[가-힣]{2,4}\s+사업자등록번호\s*\d{3}-\d{2}-\d{5}/);
+  m = text.match(/\n([^\n]+?)\s+([가-힣]{2,4})\s+사업자등록번호\s*\d{3}-\d{2}-\d{5}/);
   f.companyName = m ? m[1].trim() : '';
+  f.repName = m ? m[2].trim() : '';
   if(!f.companyName){
     m = text.match(/상\s*호\s*\(법인명\)\s*([^\s][^성]{0,30}?)\s*성\s*명/);
     f.companyName = m ? m[1].trim() : '';
@@ -304,6 +312,24 @@ function parseVatText(text){
   // (같은 페이지의 다른 컬럼(과세표준명세 등)과 줄이 섞여 바로 붙어있지 않을 수 있음)
   m = text.match(/(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*\n[\s\S]{0,200}?신고인\s*:/);
   f.filedDate = m ? `${m[1]}.${String(m[2]).padStart(2,'0')}.${String(m[3]).padStart(2,'0')}` : '';
+
+  // 사업장 주소
+  m = text.match(/사업장\s*주소\s+([^\n]+?)\s*전자우편주소/);
+  f.address = m ? m[1].trim() : '';
+
+  // 업태/종목: 부속서류 여러 곳에 "업태 ... 종목 ..." 형태로 반복 등장하는데
+  // 코드번호·금액 열과 뒤섞여 잡히는 경우가 있어, 순수 한글 값만 오는 첫 매칭을 채택
+  f.bizType=''; f.bizItem='';
+  {
+    const btRe = /업\s*태\s*([^\n④⑥]{1,12}?)\s*[④⑥]?\s*종\s*목\s*([^\n]{1,20}?)(?=\n|$)/g;
+    let bm;
+    while((bm = btRe.exec(text))){
+      const bt = bm[1].trim(), bi = bm[2].trim();
+      if(/^[가-힣]{2,10}$/.test(bt) && /^[가-힣0-9,.\s]{1,20}$/.test(bi)){
+        f.bizType = bt; f.bizItem = bi; break;
+      }
+    }
+  }
 
   f.salesInvoice = firstNum(text,'1');
   f.salesOther   = firstNum(text,'4');
@@ -470,7 +496,7 @@ function renderReview(){
 
   const table = document.getElementById('reviewTable');
   let html = '<tr><th class="label">구분</th>' + sorted.map(p=>`<th>${p.fileName.slice(0,18)}</th>`).join('') + '</tr>';
-  ['companyName','bizNo','periodLabel','filedDate'].forEach(k=>{
+  ['companyName','bizNo','repName','address','bizType','bizItem','periodLabel','filedDate'].forEach(k=>{
     html += `<tr><td class="label">${FIELD_LABELS[k]}</td>` + sorted.map(p=>
       `<td><input class="meta" data-uid="${p.uid}" data-k="${k}" value="${p.fields[k]||''}"></td>`).join('') + '</tr>';
   });
@@ -487,7 +513,7 @@ function renderReview(){
     inp.addEventListener('change', e=>{
       const uid = e.target.dataset.uid, k = e.target.dataset.k;
       const p = periods.find(x=>x.uid===uid);
-      if(['companyName','bizNo','periodLabel','filedDate'].includes(k)) p.fields[k]=e.target.value;
+      if(['companyName','bizNo','repName','address','bizType','bizItem','periodLabel','filedDate'].includes(k)) p.fields[k]=e.target.value;
       else { p.fields[k] = parseNumStr(e.target.value); e.target.classList.toggle('bad', p.fields[k]===null); }
     });
   });
@@ -508,6 +534,10 @@ function generateReport(){
   const n = F.length;
   const co = F[n-1].companyName || F[0].companyName || '';
   const biz = F[n-1].bizNo || F[0].bizNo || '';
+  const rep = F[n-1].repName || F[0].repName || '';
+  const addr = F[n-1].address || F[0].address || '';
+  const bizType = F[n-1].bizType || F[0].bizType || '';
+  const bizItem = F[n-1].bizItem || F[0].bizItem || '';
 
   const last=F[n-1], prev=F[n-2];
   const salesGrowth = pct(last.taxBase-prev.taxBase, prev.taxBase);
@@ -544,17 +574,17 @@ function generateReport(){
     const outY = yOf(x.outputTax), outH = chartBottom-outY;
     const inY = yOf(x.inputTax), inH = chartBottom-inY;
     const payY = yOf(x.finalPayable), payH = chartBottom-payY;
-    bars += `<rect x="${bx}" y="${outY}" width="${barW}" height="${outH}" fill="#1B2A45"/>`;
-    bars += `<rect x="${bx+barW+8}" y="${inY}" width="${barW}" height="${inH}" fill="#3E6E64"/>`;
-    bars += `<rect x="${bx+2*(barW+8)}" y="${payY}" width="${barW}" height="${payH}" fill="#B8863C"/>`;
-    glabels += `<text x="${bx+barW*1.5+8}" y="360" text-anchor="middle" font-size="11.5" font-weight="700" fill="#1B2A45">${(x.periodLabel||'').split('(')[0].trim()||('#'+(i+1))}</text>`;
+    bars += `<rect x="${bx}" y="${outY}" width="${barW}" height="${outH}" fill="#2E5FA3"/>`;
+    bars += `<rect x="${bx+barW+8}" y="${inY}" width="${barW}" height="${inH}" fill="#2FA88C"/>`;
+    bars += `<rect x="${bx+2*(barW+8)}" y="${payY}" width="${barW}" height="${payH}" fill="#E0A83C"/>`;
+    glabels += `<text x="${bx+barW*1.5+8}" y="360" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2E5FA3">${(x.periodLabel||'').split('(')[0].trim()||('#'+(i+1))}</text>`;
     const rate = pct(x.finalPayable, x.outputTax);
     lines.push([bx+barW*1.5+8, rate!==null ? chartBottom - (rate/40)*chartH : null, rate]);
   });
   let linePoly='', lineDots='';
   const validPts = lines.filter(p=>p[1]!==null);
-  linePoly = '<polyline points="'+validPts.map(p=>p[0]+','+p[1]).join(' ')+'" fill="none" stroke="#8B3A3A" stroke-width="2.5" stroke-dasharray="6,4"/>';
-  validPts.forEach(p=>{ lineDots += `<circle cx="${p[0]}" cy="${p[1]}" r="4.5" fill="#8B3A3A"/><text x="${p[0]}" y="${p[1]-10}" text-anchor="middle" font-size="10.5" font-weight="700" fill="#8B3A3A">${p[2].toFixed(1)}%</text>`; });
+  linePoly = '<polyline points="'+validPts.map(p=>p[0]+','+p[1]).join(' ')+'" fill="none" stroke="#D1615C" stroke-width="2.5" stroke-dasharray="6,4"/>';
+  validPts.forEach(p=>{ lineDots += `<circle cx="${p[0]}" cy="${p[1]}" r="4.5" fill="#D1615C"/><text x="${p[0]}" y="${p[1]-10}" text-anchor="middle" font-size="10.5" font-weight="700" fill="#D1615C">${p[2].toFixed(1)}%</text>`; });
 
   // 상세비교표
   let detailRows = '';
@@ -595,7 +625,7 @@ function generateReport(){
     findings += `<li><span class="tag">매출</span>최근 기간 과세표준 합계는 ${fmt(last.taxBase)}원으로 직전 대비 ${salesGrowth>=0?'+':''}${salesGrowth.toFixed(1)}% ${salesGrowth>=0?'증가':'감소'}함.</li>`;
   }
   if(vatRateDelta!==null && Math.abs(vatRateDelta)>=10){
-    findings += `<li class="warn"><span class="tag">부가율</span>부가율(납부세액/매출세액)이 ${vatRatePrev.toFixed(1)}%→${vatRateLast.toFixed(1)}%로 ${Math.abs(vatRateDelta).toFixed(1)}%p 변동함. 매입/매출 비율 급변 원인(원가 변동, 재고, 고정자산 취득 등) 확인 필요.</li>`;
+    findings += `<li class="warn"><span class="tag">부가율</span>납부세액/매출세액 비율이 ${vatRatePrev.toFixed(1)}%에서 ${vatRateLast.toFixed(1)}%로 ${Math.abs(vatRateDelta).toFixed(1)}%p 변동함. 매입/매출 비율 급변 원인(원가 변동, 재고, 고정자산 취득 등) 확인 필요.</li>`;
   }
   if(last.surtax){
     findings += `<li class="warn"><span class="tag">가산세</span>최근 기간 가산세액 ${fmt(last.surtax)}원 발생. 부가가치세법 §60 가산세 규정에 따른 발생 사유 확인 및 재발 방지 조치 필요.</li>`;
@@ -619,11 +649,19 @@ function generateReport(){
   const periodHead = F.map(x=>`<th>${x.periodLabel||'(미인식)'}</th>`).join('');
 
   document.getElementById('reportOut').innerHTML = `
+    <div class="clientinfo">
+      <div class="ci-name">${co||'(상호 미인식)'}</div>
+      <div class="ci-grid">
+        <div class="k">사업자번호</div><div class="v">${biz||'-'}</div>
+        <div class="k">대표자</div><div class="v">${rep||'-'}</div>
+        <div class="k">업종</div><div class="v span3">${(bizType||bizItem)?`${bizType||'-'} / ${bizItem||'-'}`:'-'}</div>
+        <div class="k">주소</div><div class="v span3">${addr||'-'}</div>
+      </div>
+    </div>
     <section>
       <h2><span class="no">A.</span>분석대상 신고서</h2>
       <table><tr><th class="label">구분</th>${periodHead}</tr>
       <tr><td class="label">신고(접수)일</td>${F.map(x=>`<td>${x.filedDate||'-'}</td>`).join('')}</tr></table>
-      <div class="hint" style="margin-left:0;">상호(법인명): ${co||'-'} · 사업자등록번호: ${biz||'-'}</div>
     </section>
     <section><h2><span class="no">B.</span>핵심지표 요약</h2>${cards}</section>
     <section><h2><span class="no">C.</span>신고내용 상세 비교</h2>
@@ -636,10 +674,10 @@ function generateReport(){
           ${bars}${glabels}${linePoly}${lineDots}
         </svg>
         <div class="legend">
-          <span><i class="swatch" style="background:#1B2A45;"></i>매출세액</span>
-          <span><i class="swatch" style="background:#3E6E64;"></i>매입세액(차감계)</span>
-          <span><i class="swatch" style="background:#B8863C;"></i>납부세액</span>
-          <span><i class="swatch" style="background:#8B3A3A;"></i>부가율(점선)</span>
+          <span><i class="swatch" style="background:#2E5FA3;"></i>매출세액</span>
+          <span><i class="swatch" style="background:#2FA88C;"></i>매입세액(차감계)</span>
+          <span><i class="swatch" style="background:#E0A83C;"></i>납부세액</span>
+          <span><i class="swatch" style="background:#D1615C;"></i>부가율(점선)</span>
         </div>
       </div>
     </section>
@@ -650,7 +688,6 @@ function generateReport(){
       <ul class="findings">${findings}</ul>
     </section>
     <div class="signature">
-      <div class="disclaimer">본 보고서는 업로드/드라이브에서 불러온 부가가치세 신고서 PDF를 자동 파싱하여 생성되었습니다. 파싱값은 "자료 확인 및 보정" 단계에서 검토·수정된 값을 사용하였으나, 최종 수치는 홈택스 원본 신고서와 반드시 대조 확인하시기 바랍니다.</div>
       <div class="sign">원제우 세무사<br><small>원제우세무사사무소 · 032-321-4521</small></div>
     </div>`;
   document.getElementById('reportOut').style.display='block';
