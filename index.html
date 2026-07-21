@@ -156,7 +156,25 @@ let pidSeq = 0;
 let driveToken = null;
 let pickerLoaded = false;
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+let pdfWorkerReady = null;
+async function ensurePdfWorker(){
+  if(pdfWorkerReady) return pdfWorkerReady;
+  pdfWorkerReady = (async ()=>{
+    try{
+      // 샌드박스(아티팩트) iframe에서는 외부 도메인 Worker 생성이 CSP로 막히는 경우가 있어
+      // 워커 스크립트를 fetch → blob URL(same-origin)로 변환해서 사용
+      const resp = await fetch('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js');
+      if(!resp.ok) throw new Error('worker fetch failed: '+resp.status);
+      const code = await resp.text();
+      const blob = new Blob([code], {type:'application/javascript'});
+      pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
+    }catch(e){
+      console.warn('blob worker 생성 실패, CDN 직접 참조로 폴백:', e);
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  })();
+  return pdfWorkerReady;
+}
 
 const FIELD_LABELS = {
   companyName:'상호(법인명)', bizNo:'사업자등록번호', periodLabel:'신고기간', filedDate:'신고(접수)일',
@@ -286,7 +304,7 @@ function renderPeriodList(){
         <div class="fname">${p.fileName ? p.fileName : '(파일 미선택)'}</div>
         <div class="fstatus ${p.parseOk?'ok':(p.fileName?'err':'')}">${
           p.parseOk ? '✓ 파싱 완료 — ' + (p.fields.periodLabel||'신고기간 미인식(직접 입력 필요)')
-          : (p.fileName ? '⚠ 파싱 실패 또는 검토 필요 — 아래에서 직접 입력하세요' : '')
+          : (p.fileName ? '⚠ ' + (p.parseError || '파싱 실패 또는 검토 필요') : '')
         }</div>
       </div>
       <div class="actions">
@@ -304,17 +322,21 @@ function renderPeriodList(){
 async function handleFile(uid, file){
   if(!file) return;
   const p = periods.find(x=>x.uid===uid);
-  p.fileName = file.name; p.source='upload'; p.parseOk=false;
+  p.fileName = file.name; p.source='upload'; p.parseOk=false; p.parseError=null;
   renderPeriodList();
   try{
+    await ensurePdfWorker();
     const buf = await file.arrayBuffer();
     const text = await extractPdfText(buf);
+    if(!text || text.trim().length < 20) throw new Error('PDF에서 텍스트를 추출하지 못했습니다(스캔본이거나 텍스트 레이어 없음 가능성).');
     p.fields = parseVatText(text);
     p.parseOk = !!(p.fields.taxBase && p.fields.outputTax);
+    if(!p.parseOk) p.parseError = '핵심 항목(과세표준/매출세액) 인식 실패 — 아래 표에서 직접 입력해주세요.';
   }catch(err){
     console.error(err);
     p.fields = p.fields || {};
     p.parseOk = false;
+    p.parseError = err.message || String(err);
   }
   renderPeriodList();
   renderReview();
@@ -347,6 +369,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
   if(cid) document.getElementById('gClientId').value = cid;
   if(key) document.getElementById('gApiKey').value = key;
   addPeriodRow(); addPeriodRow();
+  ensurePdfWorker(); // 미리 준비해두어 첫 업로드 지연 최소화
 });
 function openPicker(uid){
   if(!driveToken || !pickerLoaded){ alert('먼저 구글 드라이브에 연결해주세요.'); return; }
@@ -360,15 +383,19 @@ function openPicker(uid){
       if(data.action === google.picker.Action.PICKED){
         const file = data.docs[0];
         const p = periods.find(x=>x.uid===uid);
-        p.fileName = file.name; p.source='drive'; p.parseOk=false;
+        p.fileName = file.name; p.source='drive'; p.parseOk=false; p.parseError=null;
         renderPeriodList();
         try{
+          await ensurePdfWorker();
           const res = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {headers:{Authorization:`Bearer ${driveToken}`}});
+          if(!res.ok) throw new Error('드라이브 파일 다운로드 실패: '+res.status);
           const buf = await res.arrayBuffer();
           const text = await extractPdfText(buf);
+          if(!text || text.trim().length < 20) throw new Error('PDF에서 텍스트를 추출하지 못했습니다.');
           p.fields = parseVatText(text);
           p.parseOk = !!(p.fields.taxBase && p.fields.outputTax);
-        }catch(err){ console.error(err); p.parseOk=false; }
+          if(!p.parseOk) p.parseError = '핵심 항목(과세표준/매출세액) 인식 실패 — 아래 표에서 직접 입력해주세요.';
+        }catch(err){ console.error(err); p.parseOk=false; p.parseError = err.message || String(err); }
         renderPeriodList(); renderReview(); updateGenerateBtn();
       }
     }).build();
