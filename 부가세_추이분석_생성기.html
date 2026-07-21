@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>부가가치세 신고 추이 분석 보고서 생성기</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://apis.google.com/js/api.js"></script>
+<script src="https://accounts.google.com/gsi/client"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap');
+  :root{
+    --navy:#1B2A45; --navy-light:#2E4166; --teal:#3E6E64; --gold:#B8863C;
+    --burgundy:#8B3A3A; --paper:#FBFAF7; --line:#DAD5C8; --ink:#232323; --muted:#6B6B63;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:#E9E6DD; color:var(--ink); font-family:'Noto Sans KR',sans-serif; font-variant-numeric:tabular-nums;}
+  .sheet{max-width:1040px; margin:24px auto; background:var(--paper); box-shadow:0 4px 24px rgba(0,0,0,.12); padding-bottom:40px;}
+  .letterhead{background:var(--navy); color:#F4F2EA; padding:26px 44px; display:flex; justify-content:space-between; align-items:flex-end; border-bottom:5px solid var(--gold);}
+  .letterhead .brand{font-family:'Noto Serif KR',serif; font-weight:700; font-size:20px;}
+  .letterhead .brand small{display:block; font-family:'Noto Sans KR',sans-serif; font-weight:400; font-size:11.5px; color:#C9CEDA; margin-top:4px;}
+  .letterhead .contact{font-size:11.5px; text-align:right; color:#C9CEDA; line-height:1.7;}
+  .titleblock{padding:30px 44px 16px; border-bottom:1px solid var(--line);}
+  .eyebrow{font-size:11.5px; letter-spacing:2px; color:var(--gold); font-weight:700; text-transform:uppercase;}
+  h1{font-family:'Noto Serif KR',serif; font-size:25px; margin:8px 0 6px; color:var(--navy);}
+  .subtitle{font-size:13px; color:var(--muted);}
+  section{padding:26px 44px 0;}
+  h2{font-family:'Noto Serif KR',serif; font-size:15.5px; color:var(--navy); border-left:4px solid var(--gold); padding-left:10px; margin:0 0 14px; display:flex; align-items:center; gap:8px;}
+  h2 .no{color:var(--gold);}
+  .hint{font-size:11.5px; color:var(--muted); margin:-8px 0 14px 14px;}
+
+  .panel{border:1px solid var(--line); background:#fff; border-radius:3px; padding:16px 18px;}
+  .drive-panel{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+  .drive-panel input[type=text]{flex:1; min-width:180px; padding:8px 10px; border:1px solid var(--line); border-radius:3px; font-size:12.5px;}
+  .btn{border:none; border-radius:3px; padding:8px 14px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:'Noto Sans KR',sans-serif;}
+  .btn-navy{background:var(--navy); color:#fff;}
+  .btn-navy:hover{background:var(--navy-light);}
+  .btn-gold{background:var(--gold); color:#fff;}
+  .btn-outline{background:#fff; color:var(--navy); border:1px solid var(--navy);}
+  .btn-ghost{background:#F1EFE7; color:var(--muted); border:1px solid var(--line);}
+  .btn-danger{background:#fff; color:var(--burgundy); border:1px solid var(--burgundy);}
+  .btn:disabled{opacity:.4; cursor:not-allowed;}
+  .drive-status{font-size:11.5px; color:var(--muted);}
+  .drive-status.on{color:var(--teal); font-weight:700;}
+
+  .period-row{display:flex; align-items:center; gap:12px; border:1px solid var(--line); background:#fff; border-radius:3px; padding:12px 16px; margin-bottom:10px;}
+  .period-row .idx{width:30px; height:30px; border-radius:50%; background:var(--navy); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0;}
+  .period-row .body{flex:1; min-width:0;}
+  .period-row .fname{font-size:12.5px; font-weight:700; color:var(--navy); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .period-row .fstatus{font-size:11px; color:var(--muted); margin-top:2px;}
+  .period-row .fstatus.ok{color:var(--teal);}
+  .period-row .fstatus.err{color:var(--burgundy);}
+  .period-row .actions{display:flex; gap:8px; flex-shrink:0;}
+  .period-row input[type=file]{display:none;}
+  .addrow-wrap{text-align:center; margin-top:6px;}
+
+  table{width:100%; border-collapse:collapse; font-size:12px; margin-bottom:6px;}
+  th,td{border:1px solid var(--line); padding:6px 8px; text-align:right;}
+  th{background:var(--navy); color:#F4F2EA; font-weight:500; text-align:center; font-size:11px;}
+  td.label, th.label{text-align:left; background:#F1EFE7; font-weight:700; color:var(--navy); white-space:nowrap;}
+  tr.total td{font-weight:700; background:#F6F4EC;}
+  tr.groupsep td{background:var(--navy); color:#fff; font-weight:700; font-size:11px; text-align:left;}
+  .review-table input{width:100%; border:1px solid transparent; background:transparent; text-align:right; font-size:12px; font-variant-numeric:tabular-nums; padding:2px;}
+  .review-table input:focus{border-color:var(--gold); background:#FFFBF2; outline:none;}
+  .review-table input.bad{background:#FBEAEA;}
+  .review-table input.meta{text-align:left;}
+
+  .cards{display:flex; gap:14px; margin-bottom:6px; flex-wrap:wrap;}
+  .card{flex:1; min-width:180px; border:1px solid var(--line); background:#fff; padding:16px 18px; border-radius:3px;}
+  .card .label{font-size:11px; color:var(--muted); margin-bottom:6px;}
+  .card .num{font-size:21px; font-weight:700; color:var(--navy); font-family:'Noto Serif KR',serif;}
+  .card .delta{font-size:11.5px; margin-top:6px; font-weight:500;}
+  .up{color:var(--burgundy);} .down{color:var(--teal);} .flat{color:var(--muted);}
+
+  .chart-wrap{border:1px solid var(--line); background:#fff; padding:16px; border-radius:3px;}
+  .legend{display:flex; gap:20px; font-size:11px; margin-top:8px; flex-wrap:wrap;}
+  .legend span{display:inline-flex; align-items:center; gap:6px;}
+  .swatch{width:11px; height:11px; display:inline-block; border-radius:2px;}
+
+  .findings{list-style:none; margin:0; padding:0;}
+  .findings li{padding:11px 14px 11px 42px; margin-bottom:8px; border:1px solid var(--line); background:#fff; position:relative; font-size:12.3px; line-height:1.6;}
+  .findings li .tag{position:absolute; left:13px; top:11px; font-size:10px; font-weight:700; color:#fff; background:var(--gold); padding:1px 6px; border-radius:2px;}
+  .findings li.warn .tag{background:var(--burgundy);}
+
+  .toolbar{display:flex; gap:10px; justify-content:center; margin:28px 44px 0;}
+  .empty-state{text-align:center; padding:30px; color:var(--muted); font-size:12.5px; border:1px dashed var(--line); border-radius:4px;}
+  #reportOut{display:none;}
+  .signature{margin:30px 44px 0; padding-top:18px; border-top:1px solid var(--line); display:flex; justify-content:space-between; align-items:flex-end;}
+  .signature .disclaimer{font-size:10.3px; color:var(--muted); line-height:1.7; max-width:640px;}
+  .signature .sign{text-align:center; font-family:'Noto Serif KR',serif; font-size:14px; color:var(--navy);}
+  .signature .sign small{display:block; font-size:10.3px; color:var(--muted); font-weight:400; margin-top:4px;}
+
+  @media print{
+    body{background:#fff;}
+    .sheet{box-shadow:none; margin:0;}
+    .no-print{display:none !important;}
+    #reportOut{display:block !important;}
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="letterhead">
+    <div class="brand">原濟愚<br>원제우세무사사무소<small>부천시 소향로 135, 3층 부일빌딩</small></div>
+    <div class="contact">032-321-4521 · taxmancall@gmail.com<br>세무대리인 원제우 (사업자등록번호 164-53-00241)</div>
+  </div>
+
+  <div class="titleblock">
+    <div class="eyebrow">VAT Filing Trend Analysis · Generator</div>
+    <h1>부가가치세 신고 추이 분석 보고서 생성기</h1>
+    <div class="subtitle">부가가치세 신고서 PDF 업로드 또는 구글 드라이브 연동 → 자동 파싱(검토·보정 가능) → 추이 비교 보고서 · 인쇄용 출력</div>
+  </div>
+
+  <!-- Google Drive 연결 -->
+  <section class="no-print">
+    <h2><span class="no">G</span>구글 드라이브 연결 (선택)</h2>
+    <div class="hint">업체별 부가세 신고서 PDF가 드라이브에 저장되어 있다면, 최초 1회 아래 정보를 입력하고 연결하면 각 업로드 칸 옆에 "드라이브에서 선택" 버튼이 활성화됩니다. 클라이언트 ID·API 키는 이 브라우저에만 저장되며(localStorage) 서버로 전송되지 않습니다.</div>
+    <div class="panel drive-panel">
+      <input type="text" id="gClientId" placeholder="OAuth 클라이언트 ID">
+      <input type="text" id="gApiKey" placeholder="API 키">
+      <button class="btn btn-navy" id="btnDriveConnect">🔗 연결</button>
+      <span class="drive-status" id="driveStatus">연결 안 됨</span>
+    </div>
+  </section>
+
+  <!-- PDF 업로드 -->
+  <section class="no-print">
+    <h2><span class="no">1.</span>부가가치세 신고서 업로드</h2>
+    <div class="hint">홈택스에서 다운받은 <b>일반과세자 부가가치세 신고서 PDF</b>(텍스트 포함본, 스캔본 아님)를 신고기간 순서와 무관하게 업로드하세요. 신고기간은 파일 내용으로 자동 인식 후 날짜순 정렬됩니다. 최소 2개 기간 이상 권장.</div>
+    <div id="periodList"></div>
+    <div class="addrow-wrap"><button class="btn btn-outline" id="btnAddRow">+ 신고기간 추가</button></div>
+  </section>
+
+  <!-- 검토/보정 -->
+  <section class="no-print" id="reviewSection" style="display:none;">
+    <h2><span class="no">2.</span>자료 확인 및 보정</h2>
+    <div class="hint">자동 파싱된 값입니다. 홈택스 원본과 대조하여 값이 비어있거나(연분홍 표시) 틀린 항목은 직접 수정한 뒤 보고서를 생성하세요.</div>
+    <div style="overflow-x:auto;"><table class="review-table" id="reviewTable"></table></div>
+  </section>
+
+  <div class="toolbar no-print">
+    <button class="btn btn-gold" id="btnGenerate" disabled>📊 보고서 생성</button>
+    <button class="btn btn-ghost" id="btnPrint" style="display:none;">🖨️ PDF로 다운로드(인쇄)</button>
+  </div>
+
+  <!-- 보고서 출력 영역 -->
+  <div id="reportOut"></div>
+
+</div>
+
+<script>
+/* ===================== 상태 ===================== */
+let periods = [];  // {uid, fileName, source:'upload'|'drive', rawText, fields:{...}, parseOk}
+let pidSeq = 0;
+let driveToken = null;
+let pickerLoaded = false;
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const FIELD_LABELS = {
+  companyName:'상호(법인명)', bizNo:'사업자등록번호', periodLabel:'신고기간', filedDate:'신고(접수)일',
+  salesInvoice:'과세-세금계산서발급분(1)', salesOther:'과세-기타(4)',
+  zeroInvoice:'영세율-세금계산서발급분(5)', zeroOther:'영세율-기타(6)',
+  taxBase:'과세표준합계(9)', outputTax:'매출세액㉮',
+  purchaseGeneral:'매입-일반매입(10)', purchaseFixed:'매입-고정자산매입(12)', purchaseOther15:'그밖의공제매입세액(15)',
+  purchaseTotal16:'매입세액합계(16)', nonDeductible:'공제받지못할매입세액(17)', inputTax:'매입세액차감계㉯(18)',
+  payable:'납부(환급)세액㉰', surtax:'가산세액계(29)', finalPayable:'최종납부세액(30)',
+  ndCar:'불공제-자동차③', ndLand:'불공제-토지자본적지출⑥',
+  salesParties:'매출처수', purchaseParties:'매입처수'
+};
+const FIELD_ORDER = Object.keys(FIELD_LABELS);
+const NUM_FIELDS = FIELD_ORDER.filter(k=>!['companyName','bizNo','periodLabel','filedDate'].includes(k));
+
+/* ===================== 유틸 ===================== */
+function fmt(n){ if(n===null||n===undefined||isNaN(n)) return ''; return Number(n).toLocaleString('ko-KR'); }
+function pct(n,d){ if(!d) return null; return (n/d)*100; }
+function parseNumStr(s){ if(s===undefined||s===null) return null; const t=String(s).replace(/,/g,'').trim(); if(t==='') return null; const v=Number(t); return isNaN(v)?null:v; }
+
+function firstNum(text, itemNo){
+  const re = new RegExp('\\('+itemNo+'\\)\\s*([\\d,]+)');
+  const m = text.match(re);
+  return m ? parseNumStr(m[1]) : null;
+}
+function pairAfterSymbol(text, itemNo, symbol){
+  const re = new RegExp('\\('+itemNo+'\\)\\s*([\\d,]+)\\s*'+symbol+'\\s*([\\d,]+)');
+  const m = text.match(re);
+  return m ? [parseNumStr(m[1]), parseNumStr(m[2])] : [null,null];
+}
+function afterSymbolOnly(text, symbol){
+  const re = new RegExp(symbol+'\\s*([\\d,]+)');
+  const m = text.match(re);
+  return m ? parseNumStr(m[1]) : null;
+}
+function threeNumsAfterAnchor(text, anchor){
+  const idx = text.indexOf(anchor);
+  if(idx<0) return [null,null,null];
+  const window = text.slice(idx, idx+220);
+  const nums = window.match(/[\d,]{1,}/g) || [];
+  // filter out the circled numeral / row-count style artifacts by requiring length>=1 numeric tokens after label words
+  const cleaned = nums.filter(n=>/\d/.test(n));
+  if(cleaned.length<3) return [null,null,null];
+  return [parseNumStr(cleaned[0]), parseNumStr(cleaned[1]), parseNumStr(cleaned[2])];
+}
+
+/* ===================== PDF 파싱 ===================== */
+async function extractPdfText(arrayBuffer){
+  const pdf = await pdfjsLib.getDocument({data:arrayBuffer}).promise;
+  let full = '';
+  for(let p=1;p<=pdf.numPages;p++){
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    const strs = content.items.map(it=>it.str);
+    full += strs.join(' ') + '\n';
+  }
+  return full.replace(/[ \t]+/g,' ');
+}
+
+function parseVatText(text){
+  const f = {};
+
+  // 신고기간
+  let m = text.match(/신고기간\s*(\d{4})\s*년\s*제\s*(\d)\s*기\s*\(\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*~\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  if(m){
+    f.periodLabel = `${m[1]}년 ${m[2]}기 (${m[3]}.${m[4]} ~ ${m[5]}.${m[6]})`;
+    f._sortKey = `${m[1]}${String(m[3]).padStart(2,'0')}${String(m[4]).padStart(2,'0')}`;
+  } else { f.periodLabel=''; f._sortKey='999999'; }
+
+  m = text.match(/상\s*호\s*\(법인명\)\s*([^\s][^성]{0,30}?)\s*성\s*명/);
+  f.companyName = m ? m[1].trim() : '';
+
+  m = text.match(/사업자등록번호\s*([\d]{3}-[\d]{2}-[\d]{5})/);
+  f.bizNo = m ? m[1] : '';
+
+  m = text.match(/(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*\n?\s*신고인/);
+  f.filedDate = m ? `${m[1]}.${String(m[2]).padStart(2,'0')}.${String(m[3]).padStart(2,'0')}` : '';
+
+  f.salesInvoice = firstNum(text,'1');
+  f.salesOther   = firstNum(text,'4');
+  f.zeroInvoice  = firstNum(text,'5');
+  f.zeroOther    = firstNum(text,'6');
+  const p9 = pairAfterSymbol(text,'9','㉮'); f.taxBase = p9[0]; f.outputTax = p9[1];
+
+  f.purchaseGeneral = firstNum(text,'10');
+  f.purchaseFixed   = firstNum(text,'12');
+  f.purchaseOther15 = firstNum(text,'15');
+  f.purchaseTotal16 = firstNum(text,'16');
+  f.nonDeductible   = firstNum(text,'17');
+  const p18 = pairAfterSymbol(text,'18','㉯'); f.inputTax = p18[1];
+
+  f.payable  = afterSymbolOnly(text,'㉰');
+  const p29 = text.match(/\(29\)\s*㉹\s*([\d,]+)/); f.surtax = p29?parseNumStr(p29[1]):afterSymbolOnly(text,'㉹');
+  f.finalPayable = firstNum(text,'30');
+
+  const car = threeNumsAfterAnchor(text,'자동차 구입'); f.ndCar = car[1];
+  const land = threeNumsAfterAnchor(text,'토지의 자본적 지출'); f.ndLand = land[1];
+
+  m = text.match(/매출세금계산서\s*총합계[\s\S]{0,120}?합\s*계\s*(\d+)\s*(\d+)/);
+  f.salesParties = m ? parseNumStr(m[1]) : null;
+  m = text.match(/매입세금계산서\s*총합계[\s\S]{0,120}?합\s*계\s*(\d+)\s*(\d+)/);
+  f.purchaseParties = m ? parseNumStr(m[1]) : null;
+
+  return f;
+}
+
+/* ===================== 행(Row) UI ===================== */
+function addPeriodRow(){
+  const uid = 'p'+(++pidSeq);
+  periods.push({uid, fileName:'', source:null, fields:null, parseOk:false});
+  renderPeriodList();
+}
+function removePeriodRow(uid){
+  periods = periods.filter(p=>p.uid!==uid);
+  renderPeriodList();
+  renderReview();
+}
+function renderPeriodList(){
+  const wrap = document.getElementById('periodList');
+  wrap.innerHTML='';
+  periods.forEach((p,i)=>{
+    const row = document.createElement('div');
+    row.className='period-row';
+    row.innerHTML = `
+      <div class="idx">${i+1}</div>
+      <div class="body">
+        <div class="fname">${p.fileName ? p.fileName : '(파일 미선택)'}</div>
+        <div class="fstatus ${p.parseOk?'ok':(p.fileName?'err':'')}">${
+          p.parseOk ? '✓ 파싱 완료 — ' + (p.fields.periodLabel||'신고기간 미인식(직접 입력 필요)')
+          : (p.fileName ? '⚠ 파싱 실패 또는 검토 필요 — 아래에서 직접 입력하세요' : '')
+        }</div>
+      </div>
+      <div class="actions">
+        <input type="file" accept="application/pdf" id="file_${p.uid}">
+        <button class="btn btn-outline" onclick="document.getElementById('file_${p.uid}').click()">📎 업로드</button>
+        <button class="btn btn-outline" id="drive_${p.uid}" ${driveToken?'':'disabled'}>☁️ 드라이브에서 선택</button>
+        <button class="btn btn-danger" title="삭제">🗑</button>
+      </div>`;
+    row.querySelector(`#file_${p.uid}`).addEventListener('change', e=>handleFile(p.uid, e.target.files[0]));
+    row.querySelector(`#drive_${p.uid}`).addEventListener('click', ()=>openPicker(p.uid));
+    row.querySelector('.btn-danger').addEventListener('click', ()=>removePeriodRow(p.uid));
+    wrap.appendChild(row);
+  });
+}
+async function handleFile(uid, file){
+  if(!file) return;
+  const p = periods.find(x=>x.uid===uid);
+  p.fileName = file.name; p.source='upload'; p.parseOk=false;
+  renderPeriodList();
+  try{
+    const buf = await file.arrayBuffer();
+    const text = await extractPdfText(buf);
+    p.fields = parseVatText(text);
+    p.parseOk = !!(p.fields.taxBase && p.fields.outputTax);
+  }catch(err){
+    console.error(err);
+    p.fields = p.fields || {};
+    p.parseOk = false;
+  }
+  renderPeriodList();
+  renderReview();
+  updateGenerateBtn();
+}
+
+/* ===================== 구글 드라이브 ===================== */
+document.getElementById('btnDriveConnect').addEventListener('click', ()=>{
+  const cid = document.getElementById('gClientId').value.trim();
+  const key = document.getElementById('gApiKey').value.trim();
+  if(!cid || !key){ alert('클라이언트 ID와 API 키를 입력해주세요.'); return; }
+  localStorage.setItem('vat_gClientId', cid);
+  localStorage.setItem('vat_gApiKey', key);
+  const tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: cid,
+    scope: 'https://www.googleapis.com/auth/drive.readonly',
+    callback: (resp)=>{
+      if(resp.error){ document.getElementById('driveStatus').textContent='연결 실패'; return; }
+      driveToken = resp.access_token;
+      document.getElementById('driveStatus').textContent='연결됨';
+      document.getElementById('driveStatus').classList.add('on');
+      gapi.load('picker', ()=>{ pickerLoaded=true; });
+      renderPeriodList();
+    }
+  });
+  tokenClient.requestAccessToken();
+});
+window.addEventListener('DOMContentLoaded', ()=>{
+  const cid = localStorage.getItem('vat_gClientId'); const key = localStorage.getItem('vat_gApiKey');
+  if(cid) document.getElementById('gClientId').value = cid;
+  if(key) document.getElementById('gApiKey').value = key;
+  addPeriodRow(); addPeriodRow();
+});
+function openPicker(uid){
+  if(!driveToken || !pickerLoaded){ alert('먼저 구글 드라이브에 연결해주세요.'); return; }
+  const key = document.getElementById('gApiKey').value.trim();
+  const view = new google.picker.DocsView(google.picker.ViewId.PDFS).setIncludeFolders(true).setSelectFolderEnabled(false);
+  const picker = new google.picker.PickerBuilder()
+    .addView(view)
+    .setOAuthToken(driveToken)
+    .setDeveloperKey(key)
+    .setCallback(async (data)=>{
+      if(data.action === google.picker.Action.PICKED){
+        const file = data.docs[0];
+        const p = periods.find(x=>x.uid===uid);
+        p.fileName = file.name; p.source='drive'; p.parseOk=false;
+        renderPeriodList();
+        try{
+          const res = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {headers:{Authorization:`Bearer ${driveToken}`}});
+          const buf = await res.arrayBuffer();
+          const text = await extractPdfText(buf);
+          p.fields = parseVatText(text);
+          p.parseOk = !!(p.fields.taxBase && p.fields.outputTax);
+        }catch(err){ console.error(err); p.parseOk=false; }
+        renderPeriodList(); renderReview(); updateGenerateBtn();
+      }
+    }).build();
+  picker.setVisible(true);
+}
+
+document.getElementById('btnAddRow').addEventListener('click', addPeriodRow);
+
+/* ===================== 검토/보정 테이블 ===================== */
+function renderReview(){
+  const active = periods.filter(p=>p.fields);
+  const section = document.getElementById('reviewSection');
+  if(active.length===0){ section.style.display='none'; return; }
+  section.style.display='block';
+  const sorted = [...active].sort((a,b)=> (a.fields._sortKey||'9').localeCompare(b.fields._sortKey||'9'));
+
+  const table = document.getElementById('reviewTable');
+  let html = '<tr><th class="label">구분</th>' + sorted.map(p=>`<th>${p.fileName.slice(0,18)}</th>`).join('') + '</tr>';
+  ['companyName','bizNo','periodLabel','filedDate'].forEach(k=>{
+    html += `<tr><td class="label">${FIELD_LABELS[k]}</td>` + sorted.map(p=>
+      `<td><input class="meta" data-uid="${p.uid}" data-k="${k}" value="${p.fields[k]||''}"></td>`).join('') + '</tr>';
+  });
+  html += '<tr class="groupsep"><td colspan="'+(sorted.length+1)+'">매출 · 매입 · 세액</td></tr>';
+  NUM_FIELDS.forEach(k=>{
+    html += `<tr><td class="label">${FIELD_LABELS[k]}</td>` + sorted.map(p=>{
+      const v = p.fields[k];
+      const bad = (v===null || v===undefined);
+      return `<td><input class="${bad?'bad':''}" data-uid="${p.uid}" data-k="${k}" value="${v!==null&&v!==undefined?v:''}"></td>`;
+    }).join('') + '</tr>';
+  });
+  table.innerHTML = html;
+  table.querySelectorAll('input').forEach(inp=>{
+    inp.addEventListener('change', e=>{
+      const uid = e.target.dataset.uid, k = e.target.dataset.k;
+      const p = periods.find(x=>x.uid===uid);
+      if(['companyName','bizNo','periodLabel','filedDate'].includes(k)) p.fields[k]=e.target.value;
+      else { p.fields[k] = parseNumStr(e.target.value); e.target.classList.toggle('bad', p.fields[k]===null); }
+    });
+  });
+  updateGenerateBtn();
+}
+function updateGenerateBtn(){
+  const ready = periods.filter(p=>p.fields).length >= 2;
+  document.getElementById('btnGenerate').disabled = !ready;
+}
+
+/* ===================== 보고서 생성 ===================== */
+document.getElementById('btnGenerate').addEventListener('click', generateReport);
+document.getElementById('btnPrint').addEventListener('click', ()=>window.print());
+
+function generateReport(){
+  const list = periods.filter(p=>p.fields).sort((a,b)=>(a.fields._sortKey||'9').localeCompare(b.fields._sortKey||'9'));
+  const F = list.map(p=>p.fields);
+  const n = F.length;
+  const co = F[n-1].companyName || F[0].companyName || '';
+  const biz = F[n-1].bizNo || F[0].bizNo || '';
+
+  const last=F[n-1], prev=F[n-2];
+  const salesGrowth = pct(last.taxBase-prev.taxBase, prev.taxBase);
+  const payableGrowth = pct(last.finalPayable-prev.finalPayable, prev.finalPayable);
+  const vatRateLast = pct(last.finalPayable, last.outputTax);
+  const vatRatePrev = pct(prev.finalPayable, prev.outputTax);
+  const vatRateDelta = (vatRateLast!==null && vatRatePrev!==null) ? vatRateLast-vatRatePrev : null;
+
+  function deltaHtml(v, unit, invert){
+    if(v===null||v===undefined||isNaN(v)) return '<span class="delta flat">전기 비교 불가</span>';
+    const up = invert ? v<0 : v>0;
+    const cls = v===0?'flat':(up?'up':'down');
+    const arrow = v>0?'▲':(v<0?'▼':'-');
+    return `<span class="delta ${cls}">${arrow} ${Math.abs(v).toFixed(1)}${unit}</span>`;
+  }
+
+  // 차트 좌표 계산
+  const maxVal = Math.max(...F.map(x=>Math.max(x.outputTax||0, x.inputTax||0)))/1e6;
+  const chartTop=40, chartBottom=340, chartH=chartBottom-chartTop;
+  const yScale = v => chartBottom - (v/1e6)*(chartH/Math.ceil(maxVal/20+1)/20*20 ? (chartH/(Math.ceil(maxVal/20)*20)) : 1)*v/1e6*0; // placeholder unused
+  const axisMax = Math.ceil((maxVal*1.15)/20)*20 || 20;
+  const yOf = v => chartBottom - (v/1e6)/axisMax*chartH;
+  const groupW = 780/n, barW = Math.min(46, groupW/4);
+  function gx(i){ return 80 + i*groupW; }
+
+  let bars='', lines=[], glabels='', gridlines='';
+  for(let g=0; g<=4; g++){
+    const val = axisMax*g/4;
+    const y = chartBottom - (val/axisMax)*chartH;
+    gridlines += `<line x1="70" y1="${y}" x2="900" y2="${y}" stroke="${g===0?'#DAD5C8':'#EFEBE0'}"/><text x="62" y="${y+4}" text-anchor="end" font-size="10.5" fill="#8a8a80">${val}백만</text>`;
+  }
+  F.forEach((x,i)=>{
+    const bx = gx(i);
+    const outY = yOf(x.outputTax), outH = chartBottom-outY;
+    const inY = yOf(x.inputTax), inH = chartBottom-inY;
+    const payY = yOf(x.finalPayable), payH = chartBottom-payY;
+    bars += `<rect x="${bx}" y="${outY}" width="${barW}" height="${outH}" fill="#1B2A45"/>`;
+    bars += `<rect x="${bx+barW+8}" y="${inY}" width="${barW}" height="${inH}" fill="#3E6E64"/>`;
+    bars += `<rect x="${bx+2*(barW+8)}" y="${payY}" width="${barW}" height="${payH}" fill="#B8863C"/>`;
+    glabels += `<text x="${bx+barW*1.5+8}" y="360" text-anchor="middle" font-size="11.5" font-weight="700" fill="#1B2A45">${(x.periodLabel||'').split('(')[0].trim()||('#'+(i+1))}</text>`;
+    const rate = pct(x.finalPayable, x.outputTax);
+    lines.push([bx+barW*1.5+8, rate!==null ? chartBottom - (rate/40)*chartH : null, rate]);
+  });
+  let linePoly='', lineDots='';
+  const validPts = lines.filter(p=>p[1]!==null);
+  linePoly = '<polyline points="'+validPts.map(p=>p[0]+','+p[1]).join(' ')+'" fill="none" stroke="#8B3A3A" stroke-width="2.5" stroke-dasharray="6,4"/>';
+  validPts.forEach(p=>{ lineDots += `<circle cx="${p[0]}" cy="${p[1]}" r="4.5" fill="#8B3A3A"/><text x="${p[0]}" y="${p[1]-10}" text-anchor="middle" font-size="10.5" font-weight="700" fill="#8B3A3A">${p[2].toFixed(1)}%</text>`; });
+
+  // 상세비교표
+  let detailRows = '';
+  const rowsDef = [
+    ['과세 – 세금계산서 발급분','salesInvoice'], ['과세 – 기타','salesOther'],
+    ['영세율 – 세금계산서','zeroInvoice'], ['영세율 – 기타','zeroOther'],
+    ['__total','과세표준 합계','taxBase'], ['__total','매출세액 (㉮)','outputTax'],
+    ['매입 – 세금계산서 수취분(합계)','purchaseTotal16'], ['그 중 고정자산 매입','purchaseFixed'],
+    ['공제받지 못할 매입세액(공급가액)','nonDeductible'], ['__total','매입세액 차감계 (㉯)','inputTax'],
+    ['__total','최종 납부(환급)세액','finalPayable'], ['가산세액','surtax'],
+    ['매출처수','salesParties'], ['매입처수','purchaseParties'],
+  ];
+  rowsDef.forEach(r=>{
+    if(r[0]==='__total'){
+      detailRows += `<tr class="total"><td class="label">${r[1]}</td>` + F.map(x=>`<td>${fmt(x[r[2]])}</td>`).join('') + '</tr>';
+    } else {
+      detailRows += `<tr><td class="label">${r[0]}</td>` + F.map(x=>`<td>${fmt(x[r[1]])}</td>`).join('') + '</tr>';
+    }
+  });
+  detailRows += `<tr><td class="label">매입/매출 비율(공급가액대비)</td>` + F.map(x=>{
+    const r = pct(x.inputTax? (x.purchaseTotal16-x.nonDeductible) : null, x.taxBase);
+    return `<td>${r!==null?r.toFixed(1)+'%':'-'}</td>`;
+  }).join('') + '</tr>';
+  detailRows += `<tr><td class="label">부가율(납부세액/매출세액)</td>` + F.map(x=>{
+    const r = pct(x.finalPayable, x.outputTax);
+    return `<td>${r!==null?r.toFixed(1)+'%':'-'}</td>`;
+  }).join('') + '</tr>';
+
+  // 불공제매입세액 표
+  let ndRows = `<tr><th class="label">불공제 사유</th>` + F.map(x=>`<th>${(x.periodLabel||'').split('(')[0].trim()}</th>`).join('') + '</tr>';
+  ndRows += `<tr><td class="label">③ 자동차 구입·유지·임차</td>` + F.map(x=>`<td>${fmt(x.ndCar)}</td>`).join('') + '</tr>';
+  ndRows += `<tr><td class="label">⑥ 토지의 자본적 지출 관련</td>` + F.map(x=>`<td>${fmt(x.ndLand)}</td>`).join('') + '</tr>';
+  ndRows += `<tr class="total"><td class="label">합계(공급가액)</td>` + F.map(x=>`<td>${fmt(x.nonDeductible)}</td>`).join('') + '</tr>';
+
+  // 자동 검토의견
+  let findings = '';
+  if(salesGrowth!==null){
+    findings += `<li><span class="tag">매출</span>최근 기간 과세표준 합계는 ${fmt(last.taxBase)}원으로 직전 대비 ${salesGrowth>=0?'+':''}${salesGrowth.toFixed(1)}% ${salesGrowth>=0?'증가':'감소'}함.</li>`;
+  }
+  if(vatRateDelta!==null && Math.abs(vatRateDelta)>=10){
+    findings += `<li class="warn"><span class="tag">부가율</span>부가율(납부세액/매출세액)이 ${vatRatePrev.toFixed(1)}%→${vatRateLast.toFixed(1)}%로 ${Math.abs(vatRateDelta).toFixed(1)}%p 변동함. 매입/매출 비율 급변 원인(원가 변동, 재고, 고정자산 취득 등) 확인 필요.</li>`;
+  }
+  if(last.surtax){
+    findings += `<li class="warn"><span class="tag">가산세</span>최근 기간 가산세액 ${fmt(last.surtax)}원 발생. 부가가치세법 §60 가산세 규정에 따른 발생 사유 확인 및 재발 방지 조치 필요.</li>`;
+  }
+  if((last.ndLand||0) > (prev.ndLand||0)){
+    findings += `<li><span class="tag">고정자산</span>토지 관련 매입세액 불공제(⑥) ${fmt(last.ndLand)}원이 직전 대비 증가. 부동산·건물 취득에 따른 토지분 안분 처리(부가가치세법 §39①7호) 여부 확인.</li>`;
+  }
+  if(last.purchaseFixed){
+    findings += `<li><span class="tag">고정자산</span>고정자산 매입 ${fmt(last.purchaseFixed)}원 발생 — 건물 등 감가상각자산 취득명세서 신고 여부 확인.</li>`;
+  }
+  if(findings===''){ findings = '<li><span class="tag">참고</span>파싱된 수치 기준으로 특이 변동 사항이 자동 감지되지 않았습니다. 상세표를 직접 검토해주세요.</li>'; }
+
+  const cards = `
+    <div class="cards">
+      <div class="card"><div class="label">최근 과세표준(매출액) 합계</div><div class="num">${fmt(last.taxBase)}원</div>${deltaHtml(salesGrowth,'%')}</div>
+      <div class="card"><div class="label">최근 최종 납부세액</div><div class="num">${fmt(last.finalPayable)}원</div>${deltaHtml(payableGrowth,'%')}</div>
+      <div class="card"><div class="label">부가율(납부세액/매출세액)</div><div class="num">${vatRateLast!==null?vatRateLast.toFixed(1)+'%':'-'}</div>${deltaHtml(vatRateDelta,'%p')}</div>
+      <div class="card"><div class="label">가산세</div><div class="num">${fmt(last.surtax)||'0'}원</div><span class="delta ${last.surtax?'up':'flat'}">${last.surtax?'발생':'없음'}</span></div>
+    </div>`;
+
+  const periodHead = F.map(x=>`<th>${x.periodLabel||'(미인식)'}</th>`).join('');
+
+  document.getElementById('reportOut').innerHTML = `
+    <section>
+      <h2><span class="no">A.</span>분석대상 신고서</h2>
+      <table><tr><th class="label">구분</th>${periodHead}</tr>
+      <tr><td class="label">신고(접수)일</td>${F.map(x=>`<td>${x.filedDate||'-'}</td>`).join('')}</tr></table>
+      <div class="hint" style="margin-left:0;">상호(법인명): ${co||'-'} · 사업자등록번호: ${biz||'-'}</div>
+    </section>
+    <section><h2><span class="no">B.</span>핵심지표 요약</h2>${cards}</section>
+    <section><h2><span class="no">C.</span>신고내용 상세 비교</h2>
+      <table><tr><th class="label">구분</th>${periodHead}</tr>${detailRows}</table>
+    </section>
+    <section><h2><span class="no">D.</span>매출세액·매입세액·납부세액 및 부가율 추이</h2>
+      <div class="chart-wrap">
+        <svg viewBox="0 0 920 400" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:auto;">
+          <g font-family="Noto Sans KR">${gridlines}</g>
+          ${bars}${glabels}${linePoly}${lineDots}
+        </svg>
+        <div class="legend">
+          <span><i class="swatch" style="background:#1B2A45;"></i>매출세액</span>
+          <span><i class="swatch" style="background:#3E6E64;"></i>매입세액(차감계)</span>
+          <span><i class="swatch" style="background:#B8863C;"></i>납부세액</span>
+          <span><i class="swatch" style="background:#8B3A3A;"></i>부가율(점선)</span>
+        </div>
+      </div>
+    </section>
+    <section><h2><span class="no">E.</span>공제받지 못할 매입세액 사유별 비교</h2>
+      <table>${ndRows}</table>
+    </section>
+    <section><h2><span class="no">F.</span>자동 검토의견 (참고용 — 최종 판단은 담당 세무사)</h2>
+      <ul class="findings">${findings}</ul>
+    </section>
+    <div class="signature">
+      <div class="disclaimer">본 보고서는 업로드/드라이브에서 불러온 부가가치세 신고서 PDF를 자동 파싱하여 생성되었습니다. 파싱값은 "자료 확인 및 보정" 단계에서 검토·수정된 값을 사용하였으나, 최종 수치는 홈택스 원본 신고서와 반드시 대조 확인하시기 바랍니다.</div>
+      <div class="sign">원제우 세무사<br><small>원제우세무사사무소 · 032-321-4521</small></div>
+    </div>`;
+  document.getElementById('reportOut').style.display='block';
+  document.getElementById('btnPrint').style.display='inline-block';
+  document.getElementById('reportOut').scrollIntoView({behavior:'smooth'});
+}
+</script>
+</body>
+</html>
