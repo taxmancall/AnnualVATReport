@@ -122,6 +122,15 @@
       <button class="btn btn-navy" id="btnDriveConnect">🔗 연결</button>
       <span class="drive-status" id="driveStatus">연결 안 됨</span>
     </div>
+    <div class="panel drive-panel" style="margin-top:10px; align-items:flex-start;">
+      <div style="flex:0 0 260px;">
+        <div style="font-size:12px; font-weight:700; color:var(--navy); margin-bottom:6px;">드라이브 검색어 (회사명 등)</div>
+        <input type="text" id="driveSearchTerm" placeholder="예: 지그재그, 협동상사" style="width:100%;">
+      </div>
+      <div style="flex:1; font-size:11.5px; color:var(--muted); line-height:1.6; padding-top:22px;">
+        입력해두면 "드라이브에서 선택" 버튼을 누를 때 이 검색어로 미리 필터링된 상태로 열립니다. 비워두면 이미 파싱된 신고서의 상호(법인명) 값을 대신 사용합니다.
+      </div>
+    </div>
   </section>
 
   <!-- PDF 업로드 -->
@@ -222,14 +231,28 @@ function threeNumsAfterAnchor(text, anchor){
 }
 
 /* ===================== PDF 파싱 ===================== */
+function reconstructLines(items){
+  // pdf.js item 순서(content stream 순서)는 시각적 줄 순서와 다를 수 있으므로
+  // y좌표로 줄을 묶고, 각 줄 내부는 x좌표로 정렬해 실제 화면 순서를 복원한다.
+  const rows = [];
+  items.forEach(it=>{
+    if(!it.str || !it.str.trim()) return;
+    const x = it.transform[4], y = it.transform[5];
+    let row = rows.find(r=>Math.abs(r.y-y)<2.5);
+    if(!row){ row={y, items:[]}; rows.push(row); }
+    row.items.push({x, str: it.str});
+  });
+  rows.sort((a,b)=>b.y-a.y);
+  rows.forEach(r=>r.items.sort((a,b)=>a.x-b.x));
+  return rows.map(r=>r.items.map(i=>i.str).join(' ')).join('\n');
+}
 async function extractPdfText(arrayBuffer){
   const pdf = await pdfjsLib.getDocument({data:arrayBuffer}).promise;
   let full = '';
   for(let p=1;p<=pdf.numPages;p++){
     const page = await pdf.getPage(p);
     const content = await page.getTextContent();
-    const strs = content.items.map(it=>it.str);
-    full += strs.join(' ') + '\n';
+    full += reconstructLines(content.items) + '\n';
   }
   return full.replace(/[ \t]+/g,' ');
 }
@@ -374,7 +397,11 @@ window.addEventListener('DOMContentLoaded', ()=>{
 function openPicker(uid){
   if(!driveToken || !pickerLoaded){ alert('먼저 구글 드라이브에 연결해주세요.'); return; }
   const key = document.getElementById('gApiKey').value.trim();
+  const term = document.getElementById('driveSearchTerm').value.trim()
+    || (periods.find(p=>p.fields && p.fields.companyName) || {}).fields?.companyName
+    || '';
   const view = new google.picker.DocsView(google.picker.ViewId.PDFS).setIncludeFolders(true).setSelectFolderEnabled(false);
+  if(term) view.setQuery(term);
   const picker = new google.picker.PickerBuilder()
     .addView(view)
     .setOAuthToken(driveToken)
