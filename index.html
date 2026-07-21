@@ -170,6 +170,8 @@ let periods = [];  // {uid, fileName, source:'upload'|'drive', rawText, fields:{
 let pidSeq = 0;
 let driveToken = null;
 let pickerLoaded = false;
+const DEFAULT_TITLE = document.title;
+let reportPrintTitle = DEFAULT_TITLE;
 
 let pdfWorkerReady = null;
 async function ensurePdfWorker(){
@@ -526,7 +528,12 @@ function updateGenerateBtn(){
 
 /* ===================== 보고서 생성 ===================== */
 document.getElementById('btnGenerate').addEventListener('click', generateReport);
-document.getElementById('btnPrint').addEventListener('click', ()=>window.print());
+document.getElementById('btnPrint').addEventListener('click', ()=>{
+  document.title = reportPrintTitle;
+  window.print();
+  setTimeout(()=>{ document.title = DEFAULT_TITLE; }, 500);
+});
+window.addEventListener('afterprint', ()=>{ document.title = DEFAULT_TITLE; });
 
 function generateReport(){
   const list = periods.filter(p=>p.fields).sort((a,b)=>(a.fields._sortKey||'9').localeCompare(b.fields._sortKey||'9'));
@@ -538,6 +545,7 @@ function generateReport(){
   const addr = F[n-1].address || F[0].address || '';
   const bizType = F[n-1].bizType || F[0].bizType || '';
   const bizItem = F[n-1].bizItem || F[0].bizItem || '';
+  reportPrintTitle = (co ? co+' ' : '') + '부가세 분석보고서';
 
   const last=F[n-1], prev=F[n-2];
   const salesGrowth = pct(last.taxBase-prev.taxBase, prev.taxBase);
