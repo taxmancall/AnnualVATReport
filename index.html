@@ -219,8 +219,15 @@ function afterSymbolOnly(text, symbol){
   const m = text.match(re);
   return m ? parseNumStr(m[1]) : null;
 }
+function escapeRegex(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+function flexPattern(s){
+  // 앵커 문자열의 공백을 무시하고, 글자 사이에 임의 공백이 있어도 매칭되도록 함
+  return s.replace(/\s+/g,'').split('').map(escapeRegex).join('\\s*');
+}
 function threeNumsAfterAnchor(text, anchor){
-  const idx = text.indexOf(anchor);
+  const re = new RegExp(flexPattern(anchor));
+  const m = re.exec(text);
+  const idx = m ? m.index : -1;
   if(idx<0) return [null,null,null];
   const window = text.slice(idx, idx+220);
   const nums = window.match(/[\d,]{1,}/g) || [];
@@ -234,17 +241,31 @@ function threeNumsAfterAnchor(text, anchor){
 function reconstructLines(items){
   // pdf.js item 순서(content stream 순서)는 시각적 줄 순서와 다를 수 있으므로
   // y좌표로 줄을 묶고, 각 줄 내부는 x좌표로 정렬해 실제 화면 순서를 복원한다.
+  // 일부 홈택스 PDF는 글자 하나하나가 개별 text item으로 출력되므로,
+  // 아이템 사이 간격(gap)이 실제로 벌어져 있을 때만 공백을 삽입한다.
+  // (그렇지 않으면 "(9)"가 "( 9 )"로, "967,113,703"이 "9 6 7 , 1 1 3 , 7 0 3"으로
+  //  쪼개져서 숫자/괄호를 찾는 정규식이 전부 실패한다.)
+  const GAP_THRESHOLD = 2; // pt 단위, 실측상 글자 내부 간격은 0 이하, 단어/칸 경계는 3pt 이상
   const rows = [];
   items.forEach(it=>{
     if(!it.str || !it.str.trim()) return;
     const x = it.transform[4], y = it.transform[5];
     let row = rows.find(r=>Math.abs(r.y-y)<2.5);
     if(!row){ row={y, items:[]}; rows.push(row); }
-    row.items.push({x, str: it.str});
+    row.items.push({x, str: it.str, w: it.width||0});
   });
   rows.sort((a,b)=>b.y-a.y);
   rows.forEach(r=>r.items.sort((a,b)=>a.x-b.x));
-  return rows.map(r=>r.items.map(i=>i.str).join(' ')).join('\n');
+  return rows.map(r=>{
+    let line = '';
+    let prevEnd = null;
+    r.items.forEach(i=>{
+      if(prevEnd !== null && (i.x - prevEnd) > GAP_THRESHOLD) line += ' ';
+      line += i.str;
+      prevEnd = i.x + i.w;
+    });
+    return line;
+  }).join('\n');
 }
 async function extractPdfText(arrayBuffer){
   const pdf = await pdfjsLib.getDocument({data:arrayBuffer}).promise;
@@ -267,13 +288,21 @@ function parseVatText(text){
     f._sortKey = `${m[1]}${String(m[3]).padStart(2,'0')}${String(m[4]).padStart(2,'0')}`;
   } else { f.periodLabel=''; f._sortKey='999999'; }
 
-  m = text.match(/상\s*호\s*\(법인명\)\s*([^\s][^성]{0,30}?)\s*성\s*명/);
+  // 상호(법인명) 값은 "회사명 대표자명 사업자등록번호 000-00-00000" 행에 있음
+  // (라벨 "(법인명)"이 값보다 아래 줄에 오는 레이아웃도 있어 라벨 기준 탐색은 불안정함)
+  m = text.match(/\n([^\n]+?)\s+[가-힣]{2,4}\s+사업자등록번호\s*\d{3}-\d{2}-\d{5}/);
   f.companyName = m ? m[1].trim() : '';
+  if(!f.companyName){
+    m = text.match(/상\s*호\s*\(법인명\)\s*([^\s][^성]{0,30}?)\s*성\s*명/);
+    f.companyName = m ? m[1].trim() : '';
+  }
 
   m = text.match(/사업자등록번호\s*([\d]{3}-[\d]{2}-[\d]{5})/);
   f.bizNo = m ? m[1] : '';
 
-  m = text.match(/(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*\n?\s*신고인/);
+  // 신고일자: 서명란의 "YYYY년 MM월 DD일" 다음, 어느 정도 떨어진 위치에 "신고인:"이 나옴
+  // (같은 페이지의 다른 컬럼(과세표준명세 등)과 줄이 섞여 바로 붙어있지 않을 수 있음)
+  m = text.match(/(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*\n[\s\S]{0,200}?신고인\s*:/);
   f.filedDate = m ? `${m[1]}.${String(m[2]).padStart(2,'0')}.${String(m[3]).padStart(2,'0')}` : '';
 
   f.salesInvoice = firstNum(text,'1');
