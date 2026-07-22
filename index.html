@@ -91,10 +91,15 @@
   .toolbar{display:flex; gap:10px; justify-content:center; margin:28px 44px 0;}
   .empty-state{text-align:center; padding:30px; color:var(--muted); font-size:12.5px; border:1px dashed var(--line); border-radius:4px;}
   #reportOut{display:none;}
-  .signature{margin:30px 44px 0; padding-top:18px; border-top:1px solid var(--line); display:flex; justify-content:space-between; align-items:flex-end;}
+  .signature{margin:30px 44px 0; padding-top:18px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; align-items:flex-end;}
   .signature .disclaimer{font-size:10.3px; color:var(--muted); line-height:1.7; max-width:640px;}
-  .signature .sign{text-align:center; font-family:'Noto Serif KR',serif; font-size:14px; color:var(--navy);}
+  .signature .sign{text-align:right; font-family:'Noto Serif KR',serif; font-size:14px; color:var(--navy);}
   .signature .sign small{display:block; font-size:10.3px; color:var(--muted); font-weight:400; margin-top:4px;}
+  .infobox{border:1px solid var(--line); background:#F7F4EC; border-radius:3px; padding:14px 18px;}
+  .infobox-item{font-size:12px; line-height:1.7; color:var(--ink);}
+  .infobox-item + .infobox-item{margin-top:10px; padding-top:10px; border-top:1px dashed var(--line);}
+  .infobox-item b{color:var(--navy); font-weight:700;}
+  .closing-note{margin:26px 44px 0; text-align:right; font-family:'Noto Serif KR',serif; font-size:12.5px; color:var(--gold); font-style:italic;}
 
   @media print{
     body{background:#fff;}
@@ -147,6 +152,14 @@
     <div class="addrow-wrap"><button class="btn btn-outline" id="btnAddRow">+ 신고기간 추가</button></div>
   </section>
 
+  <!-- 매출/매입 전자세금계산서 합계표 업로드 (거래처 TOP N) -->
+  <section class="no-print">
+    <h2><span class="no">1-1.</span>매출·매입 거래처 합계표 업로드 (선택 — 거래처 TOP N)</h2>
+    <div class="hint">홈택스 <b>매출/매입 전자세금계산서 합계표</b> PDF를 업로드하면 합계금액 기준 상위 거래처를 보고서에 추가합니다. 부가세 신고서 PDF만으로는 전자세금계산서 발급/수취분 개별 거래처가 나오지 않아 별도 업로드가 필요합니다. 매출/매입 구분은 파일 내용으로 자동 인식됩니다.</div>
+    <div id="invoiceList"></div>
+    <div class="hint" style="margin-left:0;">표시할 상위 거래처 수: <input type="number" id="invoiceTopN" value="10" min="1" max="50" style="width:52px; text-align:center;"></div>
+  </section>
+
   <!-- 검토/보정 -->
   <section class="no-print" id="reviewSection" style="display:none;">
     <h2><span class="no">2.</span>자료 확인 및 보정</h2>
@@ -172,6 +185,7 @@ let driveToken = null;
 let pickerLoaded = false;
 const DEFAULT_TITLE = document.title;
 let reportPrintTitle = DEFAULT_TITLE;
+let invoiceDocs = { sales:null, purchase:null }; // {fileName, meta, rows, error}
 
 let pdfWorkerReady = null;
 async function ensurePdfWorker(){
@@ -285,6 +299,141 @@ async function extractPdfText(arrayBuffer){
     full += reconstructLines(content.items) + '\n';
   }
   return full.replace(/[ \t]+/g,' ');
+}
+
+/* ===================== 매출/매입 전자세금계산서 합계표 파싱 ===================== */
+// 이 서식은 "3. 매출처별/매입처별 명세서" 표에 거래처별 상세가 나오는데,
+// 금액 칸이 우측 정렬이라 자릿수에 따라 시작 x가 달라지고(고정폭 컬럼 매칭이 안 통함),
+// 긴 상호명은 셀 안에서 줄바꿈되어 데이터 행 위/아래에 걸쳐 나온다.
+// 그래서 텍스트 라인 기반이 아니라 pdf.js 아이템의 x/y 좌표를 직접 이용해
+// 일련번호(행 경계) → 각 컬럼 x구간(좌측정렬 칸) → 금액열은 간격(gap) 기반 그룹핑 순으로 복원한다.
+function joinItemsGapAware(items){
+  items = items.slice().sort((a,b)=> b.y-a.y || a.x-b.x);
+  let out=''; let prevEnd=null; let prevY=null;
+  items.forEach(it=>{
+    if(prevY!==null && Math.abs(it.y-prevY)>2.5){
+      prevEnd=null; // 셀 안에서 줄바꿈된 다음 줄 -> 공백 없이 이어붙임(단어 연속)
+    } else if(prevEnd!==null && (it.x-prevEnd)>2){
+      out+=' ';
+    }
+    out+=it.str;
+    prevEnd = it.x + it.w;
+    prevY = it.y;
+  });
+  return out.trim();
+}
+const INVOICE_COLS = [
+  {key:'serial', x0:-Infinity, x1:80},
+  {key:'bizNo',  x0:80,  x1:150},
+  {key:'name',   x0:150, x1:290},
+];
+function invoiceColFor(x){
+  for(const c of INVOICE_COLS) if(x>=c.x0 && x<c.x1) return c.key;
+  return 'other';
+}
+async function extractInvoiceRows(arrayBuffer){
+  const pdf = await pdfjsLib.getDocument({data:arrayBuffer}).promise;
+  const allRows = [];
+  let docKind = null; // 'sales' | 'purchase'
+  let meta = {companyName:'', bizNo:'', periodLabel:''};
+  for(let p=1; p<=pdf.numPages; p++){
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    const items = content.items.filter(it=>it.str && it.str.trim())
+      .map(it=>({x:it.transform[4], y:it.transform[5], str:it.str, w:it.width||0}));
+    const fullText = reconstructLines(content.items);
+    if(docKind===null){
+      if(/매출\s*전자세금계산서\s*합계표/.test(fullText)) docKind='sales';
+      else if(/매입\s*전자세금계산서\s*합계표/.test(fullText)) docKind='purchase';
+    }
+    if(p===1){
+      let m = fullText.match(/사업자번호\s*([\d]{3}-[\d]{2}-[\d]{5})/); meta.bizNo = m?m[1]:'';
+      m = fullText.match(/상호\s*\(법인명\)\s*([^\n]+)/); meta.companyName = m?m[1].trim():'';
+      m = fullText.match(/\(\s*(\d{4})\s*년\s*(\d)\s*기\s*(확정|예정)\s*\)/); meta.periodLabel = m?`${m[1]}년 ${m[2]}기 ${m[3]}`:'';
+    }
+
+    // 표 헤더(공급가액/상호/세액 포함 줄) 위치 찾기 — 2~3줄로 나뉠 수 있어 가장 아래 줄까지 포함
+    const rowsForHeader = [];
+    items.forEach(it=>{
+      let row = rowsForHeader.find(r=>Math.abs(r.y-it.y)<2.5);
+      if(!row){ row={y:it.y, items:[]}; rowsForHeader.push(row); }
+      row.items.push(it);
+    });
+    rowsForHeader.forEach(r=>r.items.sort((a,b)=>a.x-b.x));
+    let headerY = null;
+    for(const r of rowsForHeader){
+      const t = r.items.map(i=>i.str).join('');
+      if(t.includes('공급가액') && (t.includes('상호')||t.includes('세액'))) headerY = r.y;
+    }
+    if(headerY===null) continue;
+    for(const r of rowsForHeader){
+      if(r.y < headerY && r.y > headerY-15){
+        const t = r.items.map(i=>i.str).join('');
+        if(/^[가-힣]+$/.test(t) && t.length<=10) headerY = Math.min(headerY, r.y);
+      }
+    }
+    // 매입쪽만 있는 "수취구분" 칸의 시작 x (없으면 Infinity — 매출쪽엔 이 칸이 없어
+    // 고정폭으로 자르면 합계금액 뒷자리가 잘림)
+    let kindColStart = Infinity;
+    for(const r of rowsForHeader){
+      const chars = r.items.map(i=>i.str);
+      for(let k=0;k<chars.length-3;k++){
+        if(chars[k]==='수'&&chars[k+1]==='취'&&chars[k+2]==='구'&&chars[k+3]==='분'){
+          kindColStart = r.items[k].x - 3; break;
+        }
+      }
+    }
+
+    // 일련번호(1,2,3...) 위치로 행 경계를 잡는다
+    const serialItems = items.filter(it=> invoiceColFor(it.x)==='serial' && /^\d+$/.test(it.str.trim()) && it.y < headerY - 5);
+    const serialRows = [];
+    serialItems.forEach(it=>{
+      let row = serialRows.find(r=>Math.abs(r.y-it.y)<2.5);
+      if(!row){ row={y:it.y, items:[]}; serialRows.push(row); }
+      row.items.push(it);
+    });
+    serialRows.forEach(r=>r.items.sort((a,b)=>a.x-b.x));
+    let serials = serialRows.map(r=>({y:r.y, val: parseInt(r.items.map(i=>i.str).join(''))})).filter(s=>!isNaN(s.val));
+    serials.sort((a,b)=>b.y-a.y);
+    const clean=[]; let expected=null;
+    for(const s of serials){
+      if(expected===null || s.val===expected){ clean.push(s); expected=s.val+1; }
+    }
+    if(clean.length===0) continue;
+
+    for(let i=0;i<clean.length;i++){
+      const yTop = i===0 ? headerY : (clean[i-1].y + clean[i].y)/2;
+      const yBot = i===clean.length-1 ? -Infinity : (clean[i].y + clean[i+1].y)/2;
+      const rowItems = items.filter(it=> it.y <= yTop && it.y > yBot);
+      const byCol = {};
+      rowItems.forEach(it=>{ const c = invoiceColFor(it.x); if(!byCol[c]) byCol[c]=[]; byCol[c].push(it); });
+      const bizNoTxt = (byCol.bizNo||[]).map(i=>i.str).join('').replace(/\s+/g,'');
+      const bizNoMatch = bizNoTxt.match(/\d{3}-\d{2}-\d{5}/);
+      const nameTxt = joinItemsGapAware(byCol.name||[]);
+      const kindTxt = joinItemsGapAware(rowItems.filter(it=>it.x>=kindColStart));
+
+      // 매수/공급가액/세액/합계금액은 우측정렬이라 고정 x구간 대신 간격(gap) 기준으로 그룹핑
+      const numItems = rowItems.filter(it=> it.x>=290 && it.x<kindColStart).slice().sort((a,b)=> b.y-a.y || a.x-b.x);
+      const groups=[]; let cur=null, prevEnd=null, prevY=null;
+      numItems.forEach(it=>{
+        const newGroup = (prevEnd===null) || (prevY!==null && Math.abs(it.y-prevY)>2.5) || ((it.x-prevEnd)>8);
+        if(newGroup){ cur=[]; groups.push(cur); }
+        cur.push(it.str); prevEnd = it.x+it.w; prevY = it.y;
+      });
+      const nums = groups.map(g=>g.join('').replace(/[^\d,]/g,''));
+      allRows.push({
+        serial: clean[i].val,
+        bizNo: bizNoMatch?bizNoMatch[0]:null,
+        name: nameTxt,
+        count: parseNumStr(nums[0]),
+        amount: parseNumStr(nums[1]),
+        tax: parseNumStr(nums[2]),
+        total: parseNumStr(nums[3]),
+        kind: kindTxt || null,
+      });
+    }
+  }
+  return {kind: docKind, meta, rows: allRows};
 }
 
 function parseVatText(text){
@@ -423,6 +572,59 @@ async function handleFile(uid, file){
   updateGenerateBtn();
 }
 
+/* ===================== 매출/매입 합계표 업로드 ===================== */
+function renderInvoiceList(){
+  const wrap = document.getElementById('invoiceList');
+  if(!wrap) return;
+  const slots = [
+    {kind:'sales', label:'매출 전자세금계산서 합계표'},
+    {kind:'purchase', label:'매입 전자세금계산서 합계표'},
+  ];
+  wrap.innerHTML = slots.map(s=>{
+    const d = invoiceDocs[s.kind];
+    const status = !d ? ''
+      : d.error ? `⚠ ${d.error}`
+      : `✓ 파싱 완료 — 거래처 ${d.rows.length}곳${d.meta.periodLabel?(' · '+d.meta.periodLabel):''}`;
+    const statusClass = !d ? '' : (d.error ? 'err' : 'ok');
+    return `
+      <div class="period-row">
+        <div class="idx">${s.kind==='sales'?'매출':'매입'}</div>
+        <div class="body">
+          <div class="fname">${s.label}${d&&d.fileName?' — '+d.fileName:''}</div>
+          <div class="fstatus ${statusClass}">${status}</div>
+        </div>
+        <div class="actions">
+          <input type="file" accept="application/pdf" id="invfile_${s.kind}">
+          <button class="btn btn-outline" onclick="document.getElementById('invfile_${s.kind}').click()">📎 업로드</button>
+          ${d ? '<button class="btn btn-danger" title="삭제" onclick="removeInvoiceDoc(\''+s.kind+'\')">🗑</button>' : ''}
+        </div>
+      </div>`;
+  }).join('');
+  slots.forEach(s=>{
+    const inp = document.getElementById('invfile_'+s.kind);
+    if(inp) inp.addEventListener('change', e=>handleInvoiceFile(s.kind, e.target.files[0]));
+  });
+}
+function removeInvoiceDoc(kind){ invoiceDocs[kind]=null; renderInvoiceList(); }
+async function handleInvoiceFile(expectedKind, file){
+  if(!file) return;
+  try{
+    await ensurePdfWorker();
+    const buf = await file.arrayBuffer();
+    const result = await extractInvoiceRows(buf);
+    if(!result.kind) throw new Error('매출/매입 전자세금계산서 합계표 서식을 인식하지 못했습니다.');
+    if(result.rows.length===0) throw new Error('거래처별 명세 행을 찾지 못했습니다.');
+    invoiceDocs[result.kind] = { fileName:file.name, meta:result.meta, rows:result.rows, error:null };
+    if(result.kind !== expectedKind){
+      // 매출 칸에 매입 파일을 올리는 등 반대로 업로드해도 자동으로 올바른 칸에 배치
+    }
+  }catch(err){
+    console.error(err);
+    invoiceDocs[expectedKind] = { fileName:file.name, meta:{}, rows:[], error: err.message||String(err) };
+  }
+  renderInvoiceList();
+}
+
 /* ===================== 구글 드라이브 ===================== */
 document.getElementById('btnDriveConnect').addEventListener('click', ()=>{
   const cid = document.getElementById('gClientId').value.trim();
@@ -449,6 +651,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
   if(cid) document.getElementById('gClientId').value = cid;
   if(key) document.getElementById('gApiKey').value = key;
   addPeriodRow(); addPeriodRow();
+  renderInvoiceList();
   ensurePdfWorker(); // 미리 준비해두어 첫 업로드 지연 최소화
 });
 function openPicker(uid){
@@ -656,6 +859,57 @@ function generateReport(){
 
   const periodHead = F.map(x=>`<th>${x.periodLabel||'(미인식)'}</th>`).join('');
 
+  // A~E는 항상 고정으로 나오므로, 그 뒤에 조건부로 붙는 섹션들(F 이후)만 순서대로 문자를 매긴다
+  let __sec = 5;
+  const secL = ()=> String.fromCharCode(65+(__sec++));
+
+  // 매출처/매입처 TOP N (선택 업로드된 전자세금계산서 합계표 기준)
+  let invoiceSectionHtml = '';
+  {
+    const topN = Math.max(1, Math.min(50, parseInt(document.getElementById('invoiceTopN').value)||10));
+    const blocks = [];
+    [['sales','매출처'],['purchase','매입처']].forEach(([kind,label])=>{
+      const d = invoiceDocs[kind];
+      if(!d || d.error || !d.rows || d.rows.length===0) return;
+      const sorted = [...d.rows].sort((a,b)=>(b.total||0)-(a.total||0));
+      const top = sorted.slice(0, topN);
+      const grandTotal = d.rows.reduce((s,r)=>s+(r.total||0),0);
+      const topTotal = top.reduce((s,r)=>s+(r.total||0),0);
+      const topShare = grandTotal ? (topTotal/grandTotal*100) : 0;
+      const rowsHtml = top.map((r,i)=>`<tr>
+          <td style="text-align:center;">${i+1}</td>
+          <td>${r.name||'-'}</td>
+          <td style="font-variant-numeric:tabular-nums;">${r.bizNo||'-'}</td>
+          <td style="text-align:right;">${r.count!=null?fmt(r.count):'-'}</td>
+          <td style="text-align:right;">${r.amount!=null?fmt(r.amount)+'원':'-'}</td>
+          <td style="text-align:right;">${r.tax!=null?fmt(r.tax)+'원':'-'}</td>
+          <td style="text-align:right; font-weight:700;">${r.total!=null?fmt(r.total)+'원':'-'}</td>
+        </tr>`).join('');
+      blocks.push(`
+        <div style="margin-bottom:18px;">
+          <div class="hint" style="margin:-2px 0 8px 0;">${label} 전체 ${d.rows.length}곳 중 상위 ${top.length}곳 · 합계금액 기준 ${topShare.toFixed(1)}% 비중${d.meta.periodLabel?(' · '+d.meta.periodLabel):''}</div>
+          <table>
+            <tr><th style="width:34px;">순위</th><th class="label">상호</th><th>사업자번호</th><th>매수</th><th>공급가액</th><th>세액</th><th>합계금액</th></tr>
+            ${rowsHtml}
+          </table>
+        </div>`);
+    });
+    if(blocks.length>0){
+      invoiceSectionHtml = `<section><h2><span class="no">${secL()}.</span>매출처·매입처 TOP ${topN}</h2>${blocks.join('')}</section>`;
+    }
+  }
+
+  // 알아두시면 좋은 정보 (증빙 관리 안내 — 매 보고서에 고정으로 안내)
+  const infoSectionHtml = `
+    <section><h2><span class="no">${secL()}.</span>알아두시면 좋은 정보</h2>
+      <div class="infobox">
+        <div class="infobox-item"><b>세금계산서 발행·수취 기한</b> 거래 발생일이 속한 달의 다음달 10일까지 세금계산서를 발행·수취해야 합니다. 이 기한을 넘기면 지연발급·지연수취 가산세가 발생하니 미리 챙겨주세요.</div>
+        <div class="infobox-item"><b>부가가치세 절세의 시작</b> 부가가치세 절세는 세금계산서·신용카드매출전표·현금영수증 등 적격증빙을 빠짐없이 받아두는 것에서 시작합니다.</div>
+      </div>
+    </section>`;
+
+  const findingsSectionLetter = secL();
+
   document.getElementById('reportOut').innerHTML = `
     <div class="clientinfo">
       <div class="ci-name">${co||'(상호 미인식)'}</div>
@@ -692,9 +946,12 @@ function generateReport(){
     <section><h2><span class="no">E.</span>공제받지 못할 매입세액 사유별 비교</h2>
       <table>${ndRows}</table>
     </section>
-    <section><h2><span class="no">F.</span>자동 검토의견 (참고용 — 최종 판단은 담당 세무사)</h2>
+    ${invoiceSectionHtml}
+    ${infoSectionHtml}
+    <section><h2><span class="no">${findingsSectionLetter}.</span>자동 검토의견 (참고용 — 최종 판단은 담당 세무사)</h2>
       <ul class="findings">${findings}</ul>
     </section>
+    <div class="closing-note">10년간 대표님의 사업을 위해 함께해왔습니다. 앞으로도 성실히 챙기겠습니다.</div>
     <div class="signature">
       <div class="sign">원제우 세무사<br><small>원제우세무사사무소 · 032-321-4521</small></div>
     </div>`;
