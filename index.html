@@ -138,6 +138,9 @@
   body.pdf-export{background:#fff;}
   body.pdf-export .sheet{box-shadow:none; margin:0; max-width:none;}
   body.pdf-export .no-print{display:none !important;}
+  body.pdf-export table, body.pdf-export .cards, body.pdf-export .card,
+  body.pdf-export .chart-wrap, body.pdf-export .findings li,
+  body.pdf-export .infobox-item{ break-inside: avoid; page-break-inside: avoid; }
 </style>
 </head>
 <body>
@@ -1122,28 +1125,42 @@ document.getElementById('btnPrint').addEventListener('click', ()=>{
   btn.textContent = '⏳ PDF 생성 중...';
   document.title = reportPrintTitle;
   document.body.classList.add('pdf-export');
+  window.scrollTo(0,0);
 
   const safeName = (reportPrintTitle || DEFAULT_TITLE).replace(/[\\/:*?"<>|]/g,'').trim() || 'VAT_분석보고서';
-  const opt = {
-    margin: [8,10,8,10],
-    filename: safeName + '.pdf',
-    image: { type:'jpeg', quality:0.98 },
-    html2canvas: { scale:2, useCORS:true, backgroundColor:'#ffffff' },
-    jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
-    pagebreak: { mode:['css','legacy'] }
-  };
+  const el = document.querySelector('.sheet');
 
-  // 렌더링 반영 대기 후 캡처
+  // 편집 UI가 숨겨지며 문서 높이/스크롤이 바뀌므로, 레이아웃이 안정된 뒤
+  // 스크롤을 다시 한번 최상단으로 고정하고서 캡처한다 (빈 페이지/잘림 방지).
   setTimeout(()=>{
-    html2pdf().set(opt).from(document.querySelector('.sheet')).save()
-      .catch(err=>{ console.error(err); alert('PDF 생성 중 오류가 발생했습니다. 다시 시도해주세요.'); })
-      .finally(()=>{
-        document.body.classList.remove('pdf-export');
-        document.title = DEFAULT_TITLE;
-        btn.disabled = false;
-        btn.textContent = origLabel;
-      });
-  }, 50);
+    window.scrollTo(0,0);
+    requestAnimationFrame(()=>{
+      const opt = {
+        margin: [8,10,8,10],
+        filename: safeName + '.pdf',
+        image: { type:'jpeg', quality:0.98 },
+        html2canvas: {
+          scale:2,
+          useCORS:true,
+          backgroundColor:'#ffffff',
+          scrollX:0,
+          scrollY:0,
+          windowWidth: el.scrollWidth,
+          windowHeight: el.scrollHeight
+        },
+        jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
+        pagebreak: { mode:['css','avoid-all'] }
+      };
+      html2pdf().set(opt).from(el).save()
+        .catch(err=>{ console.error(err); alert('PDF 생성 중 오류가 발생했습니다. 다시 시도해주세요.'); })
+        .finally(()=>{
+          document.body.classList.remove('pdf-export');
+          document.title = DEFAULT_TITLE;
+          btn.disabled = false;
+          btn.textContent = origLabel;
+        });
+    });
+  }, 150);
 });
 
 document.getElementById('btnReset').addEventListener('click', ()=>{
