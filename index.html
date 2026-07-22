@@ -77,7 +77,7 @@
   .dropzone-sub{font-size:11px; color:var(--muted); margin-top:4px;}
 
   table{width:100%; border-collapse:collapse; font-size:12px; margin-bottom:6px;}
-  th,td{border:1px solid var(--line); padding:6px 8px; text-align:right;}
+  th,td{border:1px solid var(--line); padding:4.5px 8px; text-align:right;}
   th{background:var(--navy); background:linear-gradient(120deg,#1E5B3E,#12856B); color:#F4F2EA; font-weight:500; text-align:center; font-size:11px;}
   td.label, th.label{text-align:left; background:#EAF6F1; font-weight:700; color:var(--navy); white-space:nowrap;}
   tr.total td{font-weight:700; background:#FFF6E4;}
@@ -832,6 +832,7 @@ function parseVatText(text, page1Items){
   const p18 = pairAfterSymbol(text,'18','㉯'); f.inputTax = p18[1];
 
   f.payable  = afterSymbolOnly(text,'㉰');
+  f.creditTotal = afterSymbolOnly(text,'㉱'); // 그 밖의 경감·공제세액 + 신용카드매출전표등 발행공제 등의 합계(21)
   const p29 = text.match(/\(29\)\s*㉹\s*([\d,]+)/); f.surtax = p29?parseNumStr(p29[1]):afterSymbolOnly(text,'㉹');
   f.finalPayable = firstNum(text,'30');
   // 총괄납부(사업자단위과세 등) 사업자는 (30)이 이 사업장 단독 계산액일 뿐이고,
@@ -1383,6 +1384,8 @@ function generateReport(){
     ['매입 – 세금계산서 수취분(10+12)','purchaseInvoiceTotal'], ['그 중 고정자산 매입(12)','purchaseFixed'],
     ['매입 – 그 밖의 공제매입세액(15)','purchaseOther15'], ['__total','매입세액 합계(16)','purchaseTotal16'],
     ['공제받지 못할 매입세액(공급가액)','nonDeductible'], ['__total','매입세액 차감계 (㉯)','inputTax'],
+    ['__total','납부(환급)세액 (㉰, 경감·공제 전)','payable'],
+    ['경감·공제세액 합계(㉱, 카드발행세액공제 등)','creditTotal'],
     ['__total','최종 납부(환급)세액','finalPayable'], ['가산세액','surtax'],
     ['매출처수','salesParties'], ['매입처수','purchaseParties'],
   ];
