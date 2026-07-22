@@ -694,7 +694,9 @@ async function handleFile(uid, file){
     const text = await extractPdfText(buf);
     if(!text || text.trim().length < 20) throw new Error('PDF에서 텍스트를 추출하지 못했습니다(스캔본이거나 텍스트 레이어 없음 가능성).');
     p.fields = parseVatText(text);
-    p.parseOk = !!(p.fields.taxBase && p.fields.outputTax);
+    // 과세표준(9)/매출세액(㉮)은 전액 영세율(수출 등) 사업자의 경우 0이 정상값이므로,
+    // 값이 없음(null)인 경우만 파싱 실패로 판정한다 (0을 falsy로 오판하지 않도록 !! 대신 명시 비교)
+    p.parseOk = (p.fields.taxBase !== null && p.fields.taxBase !== undefined) && (p.fields.outputTax !== null && p.fields.outputTax !== undefined);
     if(!p.parseOk) p.parseError = '핵심 항목(과세표준/매출세액) 인식 실패 — 아래 표에서 직접 입력해주세요.';
   }catch(err){
     console.error(err);
@@ -886,7 +888,7 @@ function openPicker(uid){
           const text = await extractPdfText(buf);
           if(!text || text.trim().length < 20) throw new Error('PDF에서 텍스트를 추출하지 못했습니다.');
           p.fields = parseVatText(text);
-          p.parseOk = !!(p.fields.taxBase && p.fields.outputTax);
+          p.parseOk = (p.fields.taxBase !== null && p.fields.taxBase !== undefined) && (p.fields.outputTax !== null && p.fields.outputTax !== undefined);
           if(!p.parseOk) p.parseError = '핵심 항목(과세표준/매출세액) 인식 실패 — 아래 표에서 직접 입력해주세요.';
         }catch(err){ console.error(err); p.parseOk=false; p.parseError = err.message || String(err); }
         renderPeriodList(); renderReview(); updateGenerateBtn();
