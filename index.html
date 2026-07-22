@@ -88,7 +88,7 @@
   .review-table input.bad{background:#FDEBEA;}
   .review-table input.meta{text-align:left;}
 
-  .cards{display:grid; grid-template-columns:1.3fr 1fr 1fr 1fr; gap:14px; margin-bottom:6px;}
+  .cards{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:6px;}
   .card{border:1px solid var(--line); border-top:4px solid var(--blue); background:#fff; padding:16px 18px; border-radius:3px; min-width:0;}
   .card:nth-of-type(2){border-top-color:var(--mint);}
   .card:nth-of-type(3){border-top-color:var(--violet);}
@@ -162,6 +162,10 @@
     <div class="eyebrow">VAT Filing Trend Analysis · Generator</div>
     <h1>부가가치세 신고 추이 분석 보고서 생성기</h1>
     <div class="subtitle">부가가치세 신고서 PDF 업로드 또는 구글 드라이브 연동 → 자동 파싱(검토·보정 가능) → 추이 비교 보고서 · 인쇄용 출력</div>
+  </div>
+
+  <div class="toolbar no-print" style="margin:14px 44px 0; justify-content:flex-end;">
+    <button class="btn btn-outline" id="btnResetTop">🔄 초기화 (다른 업체 새로 시작)</button>
   </div>
 
   <!-- Google Drive 연결 -->
@@ -1178,7 +1182,7 @@ document.getElementById('btnPrintDialog').addEventListener('click', ()=>{
 });
 window.addEventListener('afterprint', ()=>{ document.title = DEFAULT_TITLE; });
 
-document.getElementById('btnReset').addEventListener('click', ()=>{
+function doReset(){
   if(!confirm('업로드된 신고서·거래처 자료와 생성된 보고서를 모두 지우고 새로 시작할까요?')) return;
   periods = [];
   pidSeq = 0;
@@ -1196,7 +1200,9 @@ document.getElementById('btnReset').addEventListener('click', ()=>{
   renderInvoiceList();
   updateGenerateBtn();
   window.scrollTo({top:0, behavior:'smooth'});
-});
+}
+document.getElementById('btnReset').addEventListener('click', doReset);
+document.getElementById('btnResetTop').addEventListener('click', doReset);
 
 function generateReport(){
   const list = periods.filter(p=>p.fields).sort((a,b)=>(a.fields._sortKey||'9').localeCompare(b.fields._sortKey||'9'));
@@ -1372,7 +1378,13 @@ function generateReport(){
       <div class="card"><div class="label">가산세</div><div class="num">${fmt(last.surtax)||'0'}원</div><span class="delta ${last.surtax?'up':'flat'}">${last.surtax?'발생':'없음'}</span></div>
     </div>`;
 
-  const periodHead = F.map((x,i)=>`<th style="${periodThStyle(i)}">${x.periodLabel||'(미인식)'}</th>`).join('');
+  const splitPeriodLabel = (label) => {
+    if(!label) return '(미인식)';
+    const idx = label.indexOf('(');
+    if(idx === -1) return label;
+    return label.slice(0, idx).trim() + '<br>' + label.slice(idx).trim();
+  };
+  const periodHead = F.map((x,i)=>`<th style="${periodThStyle(i)}">${splitPeriodLabel(x.periodLabel)}</th>`).join('');
 
   // E 이하는 실제로 렌더링되는 섹션에 한해서만 순서대로 문자를 매기고,
   // 페이지3(E/F/G 그룹)의 맨 앞에 오는 섹션에만 강제 페이지분할을 건다.
