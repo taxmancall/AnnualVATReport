@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://apis.google.com/js/api.js"></script>
 <script src="https://accounts.google.com/gsi/client"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap');
   :root{
@@ -25,12 +26,19 @@
   .eyebrow{font-size:11.5px; letter-spacing:2px; color:var(--gold); font-weight:700; text-transform:uppercase;}
   h1{font-family:'Noto Serif KR',serif; font-size:25px; margin:8px 0 6px; color:var(--navy);}
   .subtitle{font-size:13px; color:var(--muted);}
-  .clientinfo{padding:24px 44px 22px; border-bottom:3px solid var(--gold); background:var(--navy); background:linear-gradient(135deg, #1E5B3E 0%, #2F7A54 50%, #0E9C82 100%);}
+  .clientinfo{padding:24px 44px 22px; border-bottom:3px solid var(--gold); background:#1B2A4D; background:linear-gradient(135deg, #16233F 0%, #223A66 50%, #2E4F8C 100%);}
   .clientinfo .ci-name{font-family:'Noto Serif KR',serif; font-weight:700; font-size:22px; color:#fff; margin-bottom:14px; letter-spacing:0.3px;}
   .clientinfo .ci-grid{display:grid; grid-template-columns:64px 1fr 64px 1fr; gap:8px 16px; font-size:12.8px;}
-  .clientinfo .ci-grid .k{color:#D6F2E8; font-weight:700; white-space:nowrap;}
+  .clientinfo .ci-grid .k{color:#C9D6F0; font-weight:700; white-space:nowrap;}
   .clientinfo .ci-grid .v{color:#fff; font-weight:600;}
   .clientinfo .ci-grid .v.span3{grid-column:span 3;}
+
+  .vat-bigtitle{padding:56px 44px 0; text-align:center;}
+  .vat-bigtitle .eyebrow2{font-size:12px; letter-spacing:3px; color:var(--gold); font-weight:700; text-transform:uppercase; margin-bottom:16px;}
+  .vat-bigtitle h1.big{font-family:'Noto Serif KR',serif; font-size:32px; font-weight:700; color:var(--navy); margin:0; letter-spacing:0.5px; line-height:1.45;}
+  .page1-frame{display:flex; flex-direction:column; min-height:640px;}
+  .page1-bottom{margin-top:auto;}
+  .pagebreak{page-break-before:always; break-before:page;}
   section{padding:26px 44px 0;}
   h2{font-family:'Noto Serif KR',serif; font-size:15.5px; color:var(--navy); border-left:4px solid var(--gold); padding-left:10px; margin:0 0 14px; display:flex; align-items:center; gap:8px;}
   h2 .no{color:var(--gold);}
@@ -86,10 +94,10 @@
   .card:nth-of-type(3){border-top-color:var(--violet);}
   .card:nth-of-type(4){border-top-color:var(--coral);}
   .card .label{font-size:11px; color:var(--muted); margin-bottom:6px;}
-  .card .num{font-size:19px; font-weight:700; color:var(--navy); font-family:'Noto Serif KR',serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .card .num{font-size:clamp(14px,1.6vw,19px); font-weight:700; color:var(--navy); font-family:'Noto Serif KR',serif; white-space:nowrap; overflow-wrap:break-word;}
   .card-hero{border:2px solid var(--amber); border-top:4px solid var(--amber); background:#FFFBF2; box-shadow:0 2px 10px rgba(245,166,35,0.22);}
   .card-hero .label{color:var(--amber); font-weight:700;}
-  .card-hero .num{font-size:25px; color:#C97B0C;}
+  .card-hero .num{font-size:clamp(17px,2.1vw,25px); color:#C97B0C;}
   .card .delta{font-size:11.5px; margin-top:6px; font-weight:500;}
   .up{color:var(--coral);} .down{color:var(--mint);} .flat{color:var(--muted);}
 
@@ -127,12 +135,19 @@
   .closing-note{margin:26px 44px 0; text-align:right; font-family:'Noto Serif KR',serif; font-size:12.5px; color:var(--amber); font-style:italic;}
 
   *{-webkit-print-color-adjust:exact; print-color-adjust:exact; color-adjust:exact;}
+  @page{ margin:0; }
   @media print{
-    body{background:#fff;}
-    .sheet{box-shadow:none; margin:0;}
+    body{background:#fff; margin:0;}
+    .sheet{box-shadow:none; margin:0; padding-left:0.4in; padding-right:0.4in; padding-top:0.3in;}
     .no-print{display:none !important;}
     #reportOut{display:block !important;}
   }
+  body.pdf-export{background:#fff;}
+  body.pdf-export .sheet{box-shadow:none; margin:0; max-width:none;}
+  body.pdf-export .no-print{display:none !important;}
+  body.pdf-export table, body.pdf-export .cards, body.pdf-export .card,
+  body.pdf-export .chart-wrap, body.pdf-export .findings li,
+  body.pdf-export .infobox-item{ break-inside: avoid; page-break-inside: avoid; }
 </style>
 </head>
 <body>
@@ -195,7 +210,7 @@
       <div class="dropzone-sub">1개(매출 또는 매입)만 올리거나 2개를 한번에 올려도 됩니다 — 파일 내용으로 자동 구분됩니다</div>
     </div>
     <div id="invoiceList"></div>
-    <div class="hint" style="margin-left:0;">표시할 상위 거래처 수: <input type="number" id="invoiceTopN" value="10" min="1" max="50" style="width:52px; text-align:center;"></div>
+    <div class="hint" style="margin-left:0;">표시할 상위 거래처 수: <input type="number" id="invoiceTopN" value="5" min="1" max="50" style="width:52px; text-align:center;"></div>
   </section>
 
   <!-- 검토/보정 -->
@@ -207,7 +222,8 @@
 
   <div class="toolbar no-print">
     <button class="btn btn-gold" id="btnGenerate" disabled>📊 보고서 생성</button>
-    <button class="btn btn-ghost" id="btnPrint" style="display:none;">🖨️ PDF로 다운로드(인쇄)</button>
+    <button class="btn btn-ghost" id="btnPrintAuto" style="display:none;">📥 PDF 자동저장</button>
+    <button class="btn btn-ghost" id="btnPrintDialog" style="display:none;">🖨️ PDF 저장</button>
     <button class="btn btn-outline" id="btnReset">🔄 초기화 (다른 업체 새로 시작)</button>
   </div>
 
@@ -262,6 +278,18 @@ const FIELD_ORDER = Object.keys(FIELD_LABELS);
 const NUM_FIELDS = FIELD_ORDER.filter(k=>!['companyName','bizNo','repName','address','bizType','bizItem','periodLabel','filedDate'].includes(k));
 
 /* ===================== 유틸 ===================== */
+const PERIOD_COLORS = [
+  ['#1E5B3E','#12856B'], // navy/teal (green)
+  ['#2E6FF2','#5B8DF7'], // blue
+  ['#8B5CF6','#A78BFA'], // violet
+  ['#F2545B','#F58289'], // coral
+  ['#C97B0C','#F5A623'], // amber
+  ['#0E9C82','#3FC7A6']  // mint
+];
+function periodThStyle(i){
+  const c = PERIOD_COLORS[i % PERIOD_COLORS.length];
+  return `background:linear-gradient(120deg, ${c[0]}, ${c[1]});`;
+}
 function fmt(n){ if(n===null||n===undefined||isNaN(n)) return ''; return Number(n).toLocaleString('ko-KR'); }
 function pct(n,d){ if(!d) return null; return (n/d)*100; }
 function parseNumStr(s){ if(s===undefined||s===null) return null; const t=String(s).replace(/,/g,'').trim(); if(t==='') return null; const v=Number(t); return isNaN(v)?null:v; }
@@ -1067,7 +1095,7 @@ function renderReview(){
   const sorted = [...active].sort((a,b)=> (a.fields._sortKey||'9').localeCompare(b.fields._sortKey||'9'));
 
   const table = document.getElementById('reviewTable');
-  let html = '<tr><th class="label">구분</th>' + sorted.map(p=>`<th>${p.fileName.slice(0,18)}</th>`).join('') + '</tr>';
+  let html = '<tr><th class="label">구분</th>' + sorted.map((p,i)=>`<th style="${periodThStyle(i)}">${p.fileName.slice(0,18)}</th>`).join('') + '</tr>';
   ['companyName','bizNo','repName','address','bizType','bizItem','periodLabel','filedDate'].forEach(k=>{
     html += `<tr><td class="label">${FIELD_LABELS[k]}</td>` + sorted.map(p=>
       `<td><input class="meta" data-uid="${p.uid}" data-k="${k}" value="${p.fields[k]||''}"></td>`).join('') + '</tr>';
@@ -1098,7 +1126,52 @@ function updateGenerateBtn(){
 
 /* ===================== 보고서 생성 ===================== */
 document.getElementById('btnGenerate').addEventListener('click', generateReport);
-document.getElementById('btnPrint').addEventListener('click', ()=>{
+document.getElementById('btnPrintAuto').addEventListener('click', ()=>{
+  const btn = document.getElementById('btnPrintAuto');
+  const origLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ PDF 생성 중...';
+  document.title = reportPrintTitle;
+  document.body.classList.add('pdf-export');
+  window.scrollTo(0,0);
+
+  const safeName = (reportPrintTitle || DEFAULT_TITLE).replace(/[\\/:*?"<>|]/g,'').trim() || 'VAT_분석보고서';
+  const el = document.querySelector('.sheet');
+
+  // 편집 UI가 숨겨지며 문서 높이/스크롤이 바뀌므로, 레이아웃이 안정된 뒤
+  // 스크롤을 다시 한번 최상단으로 고정하고서 캡처한다 (빈 페이지/잘림 방지).
+  setTimeout(()=>{
+    window.scrollTo(0,0);
+    requestAnimationFrame(()=>{
+      const opt = {
+        margin: [8,10,8,10],
+        filename: safeName + '.pdf',
+        image: { type:'jpeg', quality:0.98 },
+        html2canvas: {
+          scale:2,
+          useCORS:true,
+          backgroundColor:'#ffffff',
+          scrollX:0,
+          scrollY:0,
+          windowWidth: el.scrollWidth,
+          windowHeight: el.scrollHeight
+        },
+        jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
+        pagebreak: { mode:['css','avoid-all'] }
+      };
+      html2pdf().set(opt).from(el).save()
+        .catch(err=>{ console.error(err); alert('PDF 생성 중 오류가 발생했습니다. 다시 시도해주세요.'); })
+        .finally(()=>{
+          document.body.classList.remove('pdf-export');
+          document.title = DEFAULT_TITLE;
+          btn.disabled = false;
+          btn.textContent = origLabel;
+        });
+    });
+  }, 150);
+});
+
+document.getElementById('btnPrintDialog').addEventListener('click', ()=>{
   document.title = reportPrintTitle;
   window.print();
   setTimeout(()=>{ document.title = DEFAULT_TITLE; }, 500);
@@ -1116,8 +1189,9 @@ document.getElementById('btnReset').addEventListener('click', ()=>{
   document.getElementById('reviewTable').innerHTML = '';
   document.getElementById('reportOut').style.display = 'none';
   document.getElementById('reportOut').innerHTML = '';
-  document.getElementById('btnPrint').style.display = 'none';
-  document.getElementById('invoiceTopN').value = 10;
+  document.getElementById('btnPrintAuto').style.display = 'none';
+  document.getElementById('btnPrintDialog').style.display = 'none';
+  document.getElementById('invoiceTopN').value = 5;
   addPeriodRow(); addPeriodRow();
   renderInvoiceList();
   updateGenerateBtn();
@@ -1137,6 +1211,21 @@ function generateReport(){
   const bizType = F[n-1].bizType || F[0].bizType || '';
   const bizItem = F[n-1].bizItem || F[0].bizItem || '';
   reportPrintTitle = (co ? co+' ' : '') + '부가세 분석보고서';
+
+  function parsePeriodRange(label){
+    if(!label) return null;
+    const m = label.match(/(\d{4})년\s*\d+기\s*\((\d{1,2})\.(\d{1,2})\s*~\s*(\d{1,2})\.(\d{1,2})\)/);
+    if(!m) return null;
+    return { year:+m[1], startMonth:+m[2], endMonth:+m[4] };
+  }
+  const rangeFirst = parsePeriodRange(F[0].periodLabel);
+  const rangeLast = parsePeriodRange(F[n-1].periodLabel);
+  let bigTitle = '부가가치세 신고 분석 보고';
+  if(rangeFirst && rangeLast){
+    bigTitle = (rangeFirst.year===rangeLast.year)
+      ? `${rangeLast.year}년 ${rangeFirst.startMonth}월 ~ ${rangeLast.endMonth}월 부가가치세 신고 분석 보고`
+      : `${rangeFirst.year}년 ${rangeFirst.startMonth}월 ~ ${rangeLast.year}년 ${rangeLast.endMonth}월 부가가치세 신고 분석 보고`;
+  }
 
   const last=F[n-1], prev=F[n-2];
   const salesGrowth = pct(last.taxBase-prev.taxBase, prev.taxBase);
@@ -1214,7 +1303,7 @@ function generateReport(){
   }).join('') + '</tr>';
 
   // 불공제매입세액 표
-  let ndRows = `<tr><th class="label">불공제 사유</th>` + F.map(x=>`<th>${(x.periodLabel||'').split('(')[0].trim()}</th>`).join('') + '</tr>';
+  let ndRows = `<tr><th class="label">불공제 사유</th>` + F.map((x,i)=>`<th style="${periodThStyle(i)}">${(x.periodLabel||'').split('(')[0].trim()}</th>`).join('') + '</tr>';
   ndRows += `<tr><td class="label">③ 자동차 구입·유지·임차</td>` + F.map(x=>`<td>${fmt(x.ndCar)}</td>`).join('') + '</tr>';
   ndRows += `<tr><td class="label">⑥ 토지의 자본적 지출 관련</td>` + F.map(x=>`<td>${fmt(x.ndLand)}</td>`).join('') + '</tr>';
   ndRows += `<tr class="total"><td class="label">합계(공급가액)</td>` + F.map(x=>`<td>${fmt(x.nonDeductible)}</td>`).join('') + '</tr>';
@@ -1249,7 +1338,7 @@ function generateReport(){
       <div class="card"><div class="label">가산세</div><div class="num">${fmt(last.surtax)||'0'}원</div><span class="delta ${last.surtax?'up':'flat'}">${last.surtax?'발생':'없음'}</span></div>
     </div>`;
 
-  const periodHead = F.map(x=>`<th>${x.periodLabel||'(미인식)'}</th>`).join('');
+  const periodHead = F.map((x,i)=>`<th style="${periodThStyle(i)}">${x.periodLabel||'(미인식)'}</th>`).join('');
 
   // A~E는 항상 고정으로 나오므로, 그 뒤에 조건부로 붙는 섹션들(F 이후)만 순서대로 문자를 매긴다
   let __sec = 5;
@@ -1258,7 +1347,7 @@ function generateReport(){
   // 매출처/매입처 TOP N (선택 업로드된 전자세금계산서 합계표 기준)
   let invoiceSectionHtml = '';
   {
-    const topN = Math.max(1, Math.min(50, parseInt(document.getElementById('invoiceTopN').value)||10));
+    const topN = Math.max(1, Math.min(50, parseInt(document.getElementById('invoiceTopN').value)||5));
     const blocks = [];
     [['sales','매출처'],['purchase','매입처']].forEach(([kind,label])=>{
       const d = invoiceDocs[kind];
@@ -1308,25 +1397,32 @@ function generateReport(){
       </div>
     </section>`;
 
-  const findingsSectionLetter = secL();
-
   document.getElementById('reportOut').innerHTML = `
-    <div class="clientinfo">
-      <div class="ci-name">${co||'(상호 미인식)'}</div>
-      <div class="ci-grid">
-        <div class="k">사업자번호</div><div class="v">${biz||'-'}</div>
-        <div class="k">대표자</div><div class="v">${rep||'-'}</div>
-        <div class="k">업종</div><div class="v span3">${(bizType||bizItem)?`${bizType||'-'} / ${bizItem||'-'}`:'-'}</div>
-        ${addr ? `<div class="k">주소</div><div class="v span3">${addr}</div>` : ''}
+    <div class="page1-frame">
+      <div class="vat-bigtitle">
+        <div class="eyebrow2">VAT Filing Report</div>
+        <h1 class="big">${bigTitle}</h1>
+      </div>
+      <div class="page1-bottom">
+        <div class="clientinfo">
+          <div class="ci-name">${co||'(상호 미인식)'}</div>
+          <div class="ci-grid">
+            <div class="k">사업자번호</div><div class="v">${biz||'-'}</div>
+            <div class="k">대표자</div><div class="v">${rep||'-'}</div>
+            <div class="k">업종</div><div class="v span3">${(bizType||bizItem)?`${bizType||'-'} / ${bizItem||'-'}`:'-'}</div>
+            ${addr ? `<div class="k">주소</div><div class="v span3">${addr}</div>` : ''}
+          </div>
+        </div>
+        <section>
+          <h2><span class="no">A.</span>분석대상 신고서</h2>
+          <table><tr><th class="label">구분</th>${periodHead}</tr>
+          <tr><td class="label">신고(접수)일</td>${F.map(x=>`<td>${x.filedDate||'-'}</td>`).join('')}</tr></table>
+        </section>
+        <section><h2><span class="no">B.</span>핵심지표 요약</h2>${cards}</section>
       </div>
     </div>
-    <section>
-      <h2><span class="no">A.</span>분석대상 신고서</h2>
-      <table><tr><th class="label">구분</th>${periodHead}</tr>
-      <tr><td class="label">신고(접수)일</td>${F.map(x=>`<td>${x.filedDate||'-'}</td>`).join('')}</tr></table>
-    </section>
-    <section><h2><span class="no">B.</span>핵심지표 요약</h2>${cards}</section>
-    <section><h2><span class="no">C.</span>신고내용 상세 비교</h2>
+
+    <section class="pagebreak"><h2><span class="no">C.</span>신고내용 상세 비교</h2>
       <table><tr><th class="label">구분</th>${periodHead}</tr>${detailRows}</table>
     </section>
     <section><h2><span class="no">D.</span>매출세액·매입세액·납부세액 및 부가율 추이</h2>
@@ -1343,20 +1439,19 @@ function generateReport(){
         </div>
       </div>
     </section>
-    <section><h2><span class="no">E.</span>공제받지 못할 매입세액 사유별 비교</h2>
+
+    <section class="pagebreak"><h2><span class="no">E.</span>공제받지 못할 매입세액 사유별 비교</h2>
       <table>${ndRows}</table>
     </section>
     ${invoiceSectionHtml}
     ${infoSectionHtml}
-    <section><h2><span class="no">${findingsSectionLetter}.</span>검토의견</h2>
-      <ul class="findings">${findings}</ul>
-    </section>
     <div class="closing-note">10년간 대표님의 사업을 위해 함께해왔습니다. 앞으로도 성실히 챙기겠습니다.</div>
     <div class="signature">
       <div class="sign">원제우 세무사<br><small>원제우세무사사무소 · 032-321-4521</small></div>
     </div>`;
   document.getElementById('reportOut').style.display='block';
-  document.getElementById('btnPrint').style.display='inline-block';
+  document.getElementById('btnPrintAuto').style.display='inline-block';
+  document.getElementById('btnPrintDialog').style.display='inline-block';
   document.getElementById('reportOut').scrollIntoView({behavior:'smooth'});
 }
 </script>
