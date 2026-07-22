@@ -404,6 +404,54 @@ function extractHeaderFieldsFromItems(items){
   return {companyName, repName, address};
 }
 
+// ❺ 과세표준명세 표의 업태/종목: 텍스트를 줄 단위로 복원하면 이 표 우측의 다른 열(서명란 등)과
+// 뒤섞이거나, 값이 셀 안에서 여러 줄로 줄바꿈되어 순서가 깨지는 경우가 많아 정규식으로는
+// 안정적으로 못 잡는다. 이 서식도 "업태/종목" 헤더와 (31)~(34) 행 번호가 고정 좌표에 있으므로,
+// 헤더를 앵커로 삼아 첫 번째 사업(31행)의 업태/종목 값만 좌표 기반으로 재구성한다.
+// (사업장이 둘 이상이면 31행이 주업종이므로 이것만 표시)
+function extractBizTypeFromItems(items){
+  if(!items || !items.length) return null;
+  const chars = items.filter(it=>it && it.str && it.str.trim())
+    .map(it=>({str:it.str, x:it.transform[4], y:it.transform[5], w:it.width||0}));
+  if(!chars.length) return null;
+
+  const 업candidates = chars.filter(c=>c.str==='업' && Math.abs(c.x-69.2)<4);
+  let headerY = null;
+  for(const c of 업candidates){
+    const pairTae = chars.find(t=>t.str==='태' && Math.abs(t.x-90.7)<4 && Math.abs(t.y-c.y)<2.5);
+    if(pairTae){ headerY = c.y; break; }
+  }
+  if(headerY===null) return null;
+  // 헤더 대비 (31)행/(32)행 라벨의 상대 y오프셋(고정 서식이라 문서마다 동일)
+  const row32Y = headerY - 29.6;
+  const yTop = headerY - 2;
+  const yBottom = row32Y + 8; // (32)행 값이 위로 침범해 섞이지 않도록 여유를 더 둠
+
+  function assembleRows(list){
+    if(!list.length) return '';
+    list.sort((a,b)=> b.y-a.y || a.x-b.x);
+    let out=''; let prevY=null; let prevEnd=null;
+    list.forEach(c=>{
+      if(prevY!==null && Math.abs(c.y-prevY)>2.5){
+        // 다른 줄: 칸 너비 때문에 단어 중간에서 끊기는 경우가 대부분이라 공백 없이 이어붙임
+      } else if(prevEnd!==null && (c.x-prevEnd)>2){
+        out+=' ';
+      }
+      out+=c.str;
+      prevEnd = c.x + c.w;
+      prevY = c.y;
+    });
+    return out.replace(/\s+/g,' ').trim();
+  }
+
+  const bizTypeChars = chars.filter(c=>c.y<yTop && c.y>=yBottom && c.x>=72 && c.x<112);
+  const bizItemChars = chars.filter(c=>c.y<yTop && c.y>=yBottom && c.x>=112 && c.x<148);
+  const bizType = assembleRows(bizTypeChars);
+  const bizItem = assembleRows(bizItemChars);
+  if(!bizType && !bizItem) return null;
+  return {bizType, bizItem};
+}
+
 /* ===================== 매출/매입 전자세금계산서 합계표 파싱 ===================== */
 // 이 서식은 "3. 매출처별/매입처별 명세서" 표에 거래처별 상세가 나오는데,
 // 금액 칸이 우측 정렬이라 자릿수에 따라 시작 x가 달라지고(고정폭 컬럼 매칭이 안 통함),
@@ -646,12 +694,17 @@ function parseVatText(text, page1Items){
     if(/^전자우편주소/.test(f.address)) f.address = '';
   }
 
-  // 업태/종목: "❺ 과세표준명세" 표의 (35)합계 금액 뒤, 업종코드(6자리 숫자) 앞에 오는
+  // 업태/종목: 좌표 기반 추출을 우선 시도(정확도 높음), 실패 시 정규식 기반 폴백
+  f.bizType=''; f.bizItem='';
+  const coordBiz = extractBizTypeFromItems(page1Items);
+  if(coordBiz && (coordBiz.bizType || coordBiz.bizItem)){
+    f.bizType = coordBiz.bizType;
+    f.bizItem = coordBiz.bizItem;
+  } else {
+  // "❺ 과세표준명세" 표의 (35)합계 금액 뒤, 업종코드(6자리 숫자) 앞에 오는
   // 한글 텍스트 구간을 통째로 캡처한다. 업태·종목 값도 칸 너비 때문에 여러 줄로
   // 줄바꿈되며 두 값 사이 경계가 뚜렷하지 않은데, 업태명은 표준산업분류상 항상 "~업"으로
   // 끝나므로 텍스트 안에서 처음 나오는 "업" 글자를 기준으로 앞은 업태, 뒤는 종목으로 나눈다.
-  f.bizType=''; f.bizItem='';
-  {
     const m2 = text.match(/\(35\)\s*합\s*계\s*[\d,\s]+([^\d]{2,80}?)(\d{6})/);
     if(m2){
       const combined = m2[1].replace(/\n+/g,' ').replace(/\s+/g,' ').trim();
