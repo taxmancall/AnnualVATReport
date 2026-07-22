@@ -807,18 +807,21 @@ function parseVatText(text, page1Items){
   f.zeroOther    = firstNum(text,'6');
   const p9 = pairAfterSymbol(text,'9','㉮'); f.taxBase = p9[0]; f.outputTax = p9[1];
 
-  // 과면(과세+면세) 겸업사업자의 면세사업 수입금액 — 서식 2페이지 하단 "면세사업 수입금액"란의 합계.
-  // 항목번호(87/88 등)가 서식 개정판마다 달라질 수 있어 고정 번호 대신 섹션 제목으로 앵커링한다.
+  // 과면(과세+면세) 겸업사업자의 면세사업 수입금액 — 서식 2페이지 하단 "❺ 과세표준명세" 다음에 나오는
+  // "면세사업 수입금액"란의 합계. 이 서식은 "면세사업"이라는 좌측 라벨 바로 뒤에 그 행의 데이터
+  // (업태·종목·코드·금액)가 곧바로 이어지고 "수입금액"이라는 라벨 2번째 줄은 그 아래 행에 표시되는
+  // 구조라, "면세사업"+"수입금액"을 통짜로 붙여서 찾으면 안 되고 "면세사업(번호)" 형태로 앵커링해야 함.
+  // (참고: "공통매입세액 중 면세사업 등 해당 세액"처럼 다른 곳에도 "면세사업"이 나오지만, 그 뒤에
+  //  바로 괄호숫자가 오지 않으므로 아래 패턴에 걸리지 않는다.)
   {
-    const anchorRe = new RegExp(flexPattern('면세사업수입금액'));
-    const am = anchorRe.exec(text);
+    const am = /면세사업\s*\(\d+\)/.exec(text);
+    let taxExemptSales = null;
     if(am){
-      const win = text.slice(am.index, am.index+400);
+      const win = text.slice(am.index, am.index+250);
       const mm = win.match(/\(\d+\)\s*합\s*계\s*([\d,]+)/);
-      f.taxExemptSales = mm ? parseNumStr(mm[1]) : null;
-    } else {
-      f.taxExemptSales = null;
+      taxExemptSales = mm ? parseNumStr(mm[1]) : null;
     }
+    f.taxExemptSales = taxExemptSales;
   }
 
   f.purchaseGeneral = firstNum(text,'10');
