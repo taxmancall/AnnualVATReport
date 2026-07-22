@@ -61,6 +61,14 @@
   .period-row input[type=file]{display:none;}
   .addrow-wrap{text-align:center; margin-top:6px;}
 
+  .dropzone{border:2px dashed var(--blue); background:#F0F5FF; border-radius:6px; padding:22px; text-align:center; cursor:pointer; margin-bottom:14px; transition:background .15s, border-color .15s;}
+  .dropzone:hover{background:#E6EFFF;}
+  .dropzone.drag-over{background:#DCE9FF; border-color:var(--navy); border-style:solid;}
+  .dropzone-icon{font-size:26px; margin-bottom:6px;}
+  .dropzone-text{font-size:13px; color:var(--navy); font-weight:500;}
+  .dropzone-text b{color:var(--blue);}
+  .dropzone-sub{font-size:11px; color:var(--muted); margin-top:4px;}
+
   table{width:100%; border-collapse:collapse; font-size:12px; margin-bottom:6px;}
   th,td{border:1px solid var(--line); padding:6px 8px; text-align:right;}
   th{background:var(--navy); background:linear-gradient(120deg,#1E5B3E,#12856B); color:#F4F2EA; font-weight:500; text-align:center; font-size:11px;}
@@ -118,6 +126,7 @@
   .infobox-link .url{display:block; margin-top:3px; margin-left:20px; font-size:10.5px; color:var(--muted); font-family:'Noto Sans KR',sans-serif; font-weight:400;}
   .closing-note{margin:26px 44px 0; text-align:right; font-family:'Noto Serif KR',serif; font-size:12.5px; color:var(--amber); font-style:italic;}
 
+  *{-webkit-print-color-adjust:exact; print-color-adjust:exact; color-adjust:exact;}
   @media print{
     body{background:#fff;}
     .sheet{box-shadow:none; margin:0;}
@@ -165,6 +174,12 @@
   <section class="no-print">
     <h2><span class="no">1.</span>부가가치세 신고서 업로드</h2>
     <div class="hint">홈택스에서 다운받은 <b>일반과세자 부가가치세 신고서 PDF</b>(텍스트 포함본, 스캔본 아님)를 신고기간 순서와 무관하게 업로드하세요. 신고기간은 파일 내용으로 자동 인식 후 날짜순 정렬됩니다. 최소 2개 기간 이상 권장.</div>
+    <div class="dropzone" id="periodDropzone">
+      <input type="file" accept="application/pdf" id="periodMultiFile" multiple style="display:none;">
+      <div class="dropzone-icon">📄</div>
+      <div class="dropzone-text"><b>PDF 파일 여러 개를 한번에 드래그</b>하거나 클릭해서 선택하세요</div>
+      <div class="dropzone-sub">선택한 개수만큼 아래 신고기간 칸이 자동으로 채워지고, 부족하면 새로 추가됩니다</div>
+    </div>
     <div id="periodList"></div>
     <div class="addrow-wrap"><button class="btn btn-outline" id="btnAddRow">+ 신고기간 추가</button></div>
   </section>
@@ -601,12 +616,17 @@ function renderPeriodList(){
         }</div>
       </div>
       <div class="actions">
-        <input type="file" accept="application/pdf" id="file_${p.uid}">
+        <input type="file" accept="application/pdf" id="file_${p.uid}" multiple>
         <button class="btn btn-outline" onclick="document.getElementById('file_${p.uid}').click()">📎 업로드</button>
         <button class="btn btn-outline" id="drive_${p.uid}" ${driveToken?'':'disabled'}>☁️ 드라이브에서 선택</button>
         <button class="btn btn-danger" title="삭제">🗑</button>
       </div>`;
-    row.querySelector(`#file_${p.uid}`).addEventListener('change', e=>handleFile(p.uid, e.target.files[0]));
+    row.querySelector(`#file_${p.uid}`).addEventListener('change', e=>{
+      const files = e.target.files;
+      if(files.length>1){ handleMultipleFiles(files); }
+      else { handleFile(p.uid, files[0]); }
+      e.target.value='';
+    });
     row.querySelector(`#drive_${p.uid}`).addEventListener('click', ()=>openPicker(p.uid));
     row.querySelector('.btn-danger').addEventListener('click', ()=>removePeriodRow(p.uid));
     wrap.appendChild(row);
@@ -634,6 +654,22 @@ async function handleFile(uid, file){
   renderPeriodList();
   renderReview();
   updateGenerateBtn();
+}
+
+// 여러 PDF를 한번에 드래그/선택했을 때: 비어있는 신고기간 칸부터 채우고, 모자라면 자동으로 칸을 추가한다
+function handleMultipleFiles(fileList){
+  const files = Array.from(fileList||[]).filter(f=>f.type==='application/pdf' || /\.pdf$/i.test(f.name));
+  if(files.length===0) return;
+  files.forEach(file=>{
+    let target = periods.find(p=>!p.fileName);
+    if(!target){
+      const uid = 'p'+(++pidSeq);
+      target = {uid, fileName:'', source:null, fields:null, parseOk:false};
+      periods.push(target);
+    }
+    handleFile(target.uid, file);
+  });
+  renderPeriodList();
 }
 
 /* ===================== 매출/매입 합계표 업로드 ===================== */
@@ -794,6 +830,21 @@ function openPicker(uid){
 }
 
 document.getElementById('btnAddRow').addEventListener('click', addPeriodRow);
+
+// 다중 PDF 드래그앤드롭 / 클릭 선택
+{
+  const dz = document.getElementById('periodDropzone');
+  const multiInput = document.getElementById('periodMultiFile');
+  dz.addEventListener('click', ()=>multiInput.click());
+  multiInput.addEventListener('change', e=>{ handleMultipleFiles(e.target.files); multiInput.value=''; });
+  ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev, e=>{ e.preventDefault(); e.stopPropagation(); dz.classList.add('drag-over'); }));
+  ['dragleave','dragend'].forEach(ev=>dz.addEventListener(ev, e=>{ e.preventDefault(); e.stopPropagation(); dz.classList.remove('drag-over'); }));
+  dz.addEventListener('drop', e=>{
+    e.preventDefault(); e.stopPropagation();
+    dz.classList.remove('drag-over');
+    handleMultipleFiles(e.dataTransfer.files);
+  });
+}
 
 /* ===================== 검토/보정 테이블 ===================== */
 function renderReview(){
