@@ -215,7 +215,8 @@
 
   <div class="toolbar no-print">
     <button class="btn btn-gold" id="btnGenerate" disabled>📊 보고서 생성</button>
-    <button class="btn btn-ghost" id="btnPrint" style="display:none;">📄 PDF로 저장</button>
+    <button class="btn btn-ghost" id="btnPrintAuto" style="display:none;">📥 PDF 자동저장</button>
+    <button class="btn btn-ghost" id="btnPrintDialog" style="display:none;">🖨️ PDF 저장</button>
     <button class="btn btn-outline" id="btnReset">🔄 초기화 (다른 업체 새로 시작)</button>
   </div>
 
@@ -1118,8 +1119,8 @@ function updateGenerateBtn(){
 
 /* ===================== 보고서 생성 ===================== */
 document.getElementById('btnGenerate').addEventListener('click', generateReport);
-document.getElementById('btnPrint').addEventListener('click', ()=>{
-  const btn = document.getElementById('btnPrint');
+document.getElementById('btnPrintAuto').addEventListener('click', ()=>{
+  const btn = document.getElementById('btnPrintAuto');
   const origLabel = btn.textContent;
   btn.disabled = true;
   btn.textContent = '⏳ PDF 생성 중...';
@@ -1163,6 +1164,13 @@ document.getElementById('btnPrint').addEventListener('click', ()=>{
   }, 150);
 });
 
+document.getElementById('btnPrintDialog').addEventListener('click', ()=>{
+  document.title = reportPrintTitle;
+  window.print();
+  setTimeout(()=>{ document.title = DEFAULT_TITLE; }, 500);
+});
+window.addEventListener('afterprint', ()=>{ document.title = DEFAULT_TITLE; });
+
 document.getElementById('btnReset').addEventListener('click', ()=>{
   if(!confirm('업로드된 신고서·거래처 자료와 생성된 보고서를 모두 지우고 새로 시작할까요?')) return;
   periods = [];
@@ -1174,7 +1182,8 @@ document.getElementById('btnReset').addEventListener('click', ()=>{
   document.getElementById('reviewTable').innerHTML = '';
   document.getElementById('reportOut').style.display = 'none';
   document.getElementById('reportOut').innerHTML = '';
-  document.getElementById('btnPrint').style.display = 'none';
+  document.getElementById('btnPrintAuto').style.display = 'none';
+  document.getElementById('btnPrintDialog').style.display = 'none';
   document.getElementById('invoiceTopN').value = 5;
   addPeriodRow(); addPeriodRow();
   renderInvoiceList();
@@ -1414,7 +1423,8 @@ function generateReport(){
       <div class="sign">원제우 세무사<br><small>원제우세무사사무소 · 032-321-4521</small></div>
     </div>`;
   document.getElementById('reportOut').style.display='block';
-  document.getElementById('btnPrint').style.display='inline-block';
+  document.getElementById('btnPrintAuto').style.display='inline-block';
+  document.getElementById('btnPrintDialog').style.display='inline-block';
   document.getElementById('reportOut').scrollIntoView({behavior:'smooth'});
 }
 </script>
