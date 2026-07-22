@@ -81,6 +81,8 @@
   th{background:var(--navy); background:linear-gradient(120deg,#1E5B3E,#12856B); color:#F4F2EA; font-weight:500; text-align:center; font-size:11px;}
   td.label, th.label{text-align:left; background:#EAF6F1; font-weight:700; color:var(--navy); white-space:nowrap;}
   tr.total td{font-weight:700; background:#FFF6E4;}
+  tr.ref-row td{background:#F3EEFC; color:#6B3FA0;}
+  tr.ref-row td.label{background:#EDE3FA; color:#6B3FA0;}
   tr.groupsep td{background:var(--blue); color:#fff; font-weight:700; font-size:11px; text-align:left;}
   table.tbl-sales th{background:linear-gradient(120deg,#1E4F8C 0%,#2E6FF2 100%);}
   .review-table input{width:100%; border:1px solid transparent; background:transparent; text-align:right; font-size:12px; font-variant-numeric:tabular-nums; padding:2px;}
@@ -805,6 +807,20 @@ function parseVatText(text, page1Items){
   f.zeroOther    = firstNum(text,'6');
   const p9 = pairAfterSymbol(text,'9','㉮'); f.taxBase = p9[0]; f.outputTax = p9[1];
 
+  // 과면(과세+면세) 겸업사업자의 면세사업 수입금액 — 서식 2페이지 하단 "면세사업 수입금액"란의 합계.
+  // 항목번호(87/88 등)가 서식 개정판마다 달라질 수 있어 고정 번호 대신 섹션 제목으로 앵커링한다.
+  {
+    const anchorRe = new RegExp(flexPattern('면세사업수입금액'));
+    const am = anchorRe.exec(text);
+    if(am){
+      const win = text.slice(am.index, am.index+400);
+      const mm = win.match(/\(\d+\)\s*합\s*계\s*([\d,]+)/);
+      f.taxExemptSales = mm ? parseNumStr(mm[1]) : null;
+    } else {
+      f.taxExemptSales = null;
+    }
+  }
+
   f.purchaseGeneral = firstNum(text,'10');
   f.purchaseFixed   = firstNum(text,'12');
   f.purchaseOther15 = firstNum(text,'15');
@@ -1358,16 +1374,22 @@ function generateReport(){
   const rowsDef = [
     ['과세 – 세금계산서 발급분','salesInvoice'], ['과세 – 신용카드·현금영수증','salesCard'], ['과세 – 기타','salesOther'],
     ['영세율 – 세금계산서','zeroInvoice'], ['영세율 – 기타','zeroOther'],
-    ['__total','과세표준 합계','taxBase'], ['__total','매출세액 (㉮)','outputTax'],
+    ['__total','과세표준 합계','taxBase'],
+    ['__ref','면세 매출(수입금액) — 참고용','taxExemptSales'],
+    ['__total','매출세액 (㉮)','outputTax'],
     ['매입 – 세금계산서 수취분(10+12)','purchaseInvoiceTotal'], ['그 중 고정자산 매입(12)','purchaseFixed'],
     ['매입 – 그 밖의 공제매입세액(15)','purchaseOther15'], ['__total','매입세액 합계(16)','purchaseTotal16'],
     ['공제받지 못할 매입세액(공급가액)','nonDeductible'], ['__total','매입세액 차감계 (㉯)','inputTax'],
     ['__total','최종 납부(환급)세액','finalPayable'], ['가산세액','surtax'],
     ['매출처수','salesParties'], ['매입처수','purchaseParties'],
   ];
+  const hasTaxExemptSales = F.some(x=> x.taxExemptSales!=null && x.taxExemptSales!==0);
   rowsDef.forEach(r=>{
     if(r[0]==='__total'){
       detailRows += `<tr class="total"><td class="label">${r[1]}</td>` + F.map(x=>`<td>${fmt(x[r[2]])}</td>`).join('') + '</tr>';
+    } else if(r[0]==='__ref'){
+      if(!hasTaxExemptSales) return; // 과면 겸업이 아니면(면세 매출이 전혀 없으면) 행 자체를 표시하지 않음
+      detailRows += `<tr class="ref-row"><td class="label">${r[1]}</td>` + F.map(x=>`<td>${x[r[2]]!=null?fmt(x[r[2]])+'원':'-'}</td>`).join('') + '</tr>';
     } else {
       detailRows += `<tr><td class="label">${r[0]}</td>` + F.map(x=>`<td>${fmt(x[r[1]])}</td>`).join('') + '</tr>';
     }
