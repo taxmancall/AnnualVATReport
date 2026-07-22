@@ -524,11 +524,23 @@ function parseVatText(text){
     f._sortKey = `${m[1]}${String(m[3]).padStart(2,'0')}${String(m[4]).padStart(2,'0')}`;
   } else { f.periodLabel=''; f._sortKey='999999'; }
 
-  // 상호(법인명) 값은 "회사명 대표자명 사업자등록번호 000-00-00000" 행에 있음
-  // (라벨 "(법인명)"이 값보다 아래 줄에 오는 레이아웃도 있어 라벨 기준 탐색은 불안정함)
-  m = text.match(/\n([^\n]+?)\s+([가-힣]{2,4})\s+사업자등록번호\s*\d{3}-\d{2}-\d{5}/);
-  f.companyName = m ? m[1].trim() : '';
-  f.repName = m ? m[2].trim() : '';
+  // 상호(법인명)·성명(대표자명): 실제 신고서에서는 "상 호\n(법인명)\n<상호가 여러 줄로
+  // 단어 중간에서 줄바꿈될 수 있음>\n성 명\n(대표자명) <성명> 사업자등록번호 ..." 형태로
+  // 나오는 경우가 많아, 두 라벨을 기준으로 그 사이 전체를 캡처한다.
+  // (상호 안의 줄바꿈은 칸 너비 때문에 단어 중간에서 끊기는 경우가 대부분이라 공백 없이 이어붙인다)
+  m = text.match(/상\s*호\s*\(?\s*법\s*인\s*명\s*\)?\s*([\s\S]{1,60}?)\s*성\s*명\s*\(?\s*대\s*표\s*자\s*명\s*\)?\s*([가-힣]{2,12})\s*사업자등록번호/);
+  if(m){
+    f.companyName = m[1].replace(/\n+/g,'').replace(/\s+/g,' ').trim();
+    f.repName = m[2].trim();
+  } else {
+    f.companyName=''; f.repName='';
+  }
+  // 위 패턴이 안 맞는 서식(예: 사업장현황명세서 등)을 위한 폴백
+  if(!f.companyName){
+    m = text.match(/\n([^\n]+?)\s+([가-힣]{2,4})\s+사업자등록번호\s*\d{3}-\d{2}-\d{5}/);
+    f.companyName = m ? m[1].trim() : '';
+    f.repName = m ? m[2].trim() : f.repName;
+  }
   if(!f.companyName){
     m = text.match(/상\s*호\s*\(법인명\)\s*([^\s][^성]{0,30}?)\s*성\s*명/);
     f.companyName = m ? m[1].trim() : '';
@@ -542,26 +554,42 @@ function parseVatText(text){
   m = text.match(/(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*\n[\s\S]{0,200}?신고인\s*:/);
   f.filedDate = m ? `${m[1]}.${String(m[2]).padStart(2,'0')}.${String(m[3]).padStart(2,'0')}` : '';
 
-  // 사업장 주소
-  // 사업장 주소: "전자우편주소"가 바로 이어붙는 걸 기본으로 삼되, 서식에 따라
-  // 다르게 줄바꿈되는 경우를 대비해 폴백 패턴을 추가로 시도한다.
-  m = text.match(/사업장\s*주소\s+([^\n]+?)\s*전자우편주소/);
+  // 사업장 주소: "사업장 주소지"(전화번호 관련 필드)와 혼동하지 않도록 뒤에 공백을 요구하고,
+  // 주소 값도 칸 너비 때문에 여러 줄로 줄바꿈되는 경우가 많아 "전자우편주소" 라벨 전까지
+  // 여러 줄에 걸쳐 캡처한 뒤 줄바꿈을 공백으로 치환해 하나의 주소로 합친다.
+  m = text.match(/사업장\s*주소\s+([\s\S]{1,120}?)\s*전자우편주소/);
   if(!m) m = text.match(/사업장\s*주소\s+([^\n]+)/);
-  f.address = m ? m[1].trim() : '';
+  f.address = m ? m[1].replace(/\n+/g,' ').replace(/\s+/g,' ').trim() : '';
   // 사업장 주소가 실제로는 빈칸이라 바로 옆 "전자우편주소" 라벨 텍스트가
   // 그대로 캡처되는 경우가 있어(주소값 없음), 이 경우 빈 값으로 처리
   if(/^전자우편주소/.test(f.address)) f.address = '';
 
-  // 업태/종목: 부속서류 여러 곳에 "업태 ... 종목 ..." 형태로 반복 등장하는데
-  // 코드번호·금액 열과 뒤섞여 잡히는 경우가 있어, 순수 한글 값만 오는 첫 매칭을 채택
+  // 업태/종목: "❺ 과세표준명세" 표의 (35)합계 금액 뒤, 업종코드(6자리 숫자) 앞에 오는
+  // 한글 텍스트 구간을 통째로 캡처한다. 업태·종목 값도 칸 너비 때문에 여러 줄로
+  // 줄바꿈되며 두 값 사이 경계가 뚜렷하지 않은데, 업태명은 표준산업분류상 항상 "~업"으로
+  // 끝나므로 텍스트 안에서 처음 나오는 "업" 글자를 기준으로 앞은 업태, 뒤는 종목으로 나눈다.
   f.bizType=''; f.bizItem='';
   {
-    const btRe = /업\s*태\s*([^\n④⑥]{1,12}?)\s*[④⑥]?\s*종\s*목\s*([^\n]{1,20}?)(?=\n|$)/g;
-    let bm;
-    while((bm = btRe.exec(text))){
-      const bt = bm[1].trim(), bi = bm[2].trim();
-      if(/^[가-힣]{2,10}$/.test(bt) && /^[가-힣0-9,.\s]{1,20}$/.test(bi)){
-        f.bizType = bt; f.bizItem = bi; break;
+    const m2 = text.match(/\(35\)\s*합\s*계\s*[\d,\s]+([^\d]{2,80}?)(\d{6})/);
+    if(m2){
+      const combined = m2[1].replace(/\n+/g,' ').replace(/\s+/g,' ').trim();
+      const idx = combined.indexOf('업');
+      if(idx!==-1){
+        f.bizType = combined.slice(0, idx+1).trim();
+        f.bizItem = combined.slice(idx+1).trim();
+      } else {
+        f.bizItem = combined;
+      }
+    }
+    if(!f.bizType && !f.bizItem){
+      // 폴백: 다른 서식에서 "업태 ... 종목 ..."이 한 줄에 붙어 나오는 경우
+      const btRe = /업\s*태\s*([^\n④⑥]{1,12}?)\s*[④⑥]?\s*종\s*목\s*([^\n]{1,20}?)(?=\n|$)/g;
+      let bm;
+      while((bm = btRe.exec(text))){
+        const bt = bm[1].trim(), bi = bm[2].trim();
+        if(/^[가-힣]{2,10}$/.test(bt) && /^[가-힣0-9,.\s]{1,20}$/.test(bi)){
+          f.bizType = bt; f.bizItem = bi; break;
+        }
       }
     }
   }
