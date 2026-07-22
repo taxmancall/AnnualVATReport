@@ -24,11 +24,11 @@
   .eyebrow{font-size:11.5px; letter-spacing:2px; color:var(--gold); font-weight:700; text-transform:uppercase;}
   h1{font-family:'Noto Serif KR',serif; font-size:25px; margin:8px 0 6px; color:var(--navy);}
   .subtitle{font-size:13px; color:var(--muted);}
-  .clientinfo{padding:22px 44px 20px; border-bottom:1px solid var(--line); background:#F7F4EC;}
-  .clientinfo .ci-name{font-family:'Noto Serif KR',serif; font-weight:700; font-size:19px; color:var(--navy); margin-bottom:12px;}
-  .clientinfo .ci-grid{display:grid; grid-template-columns:64px 1fr 64px 1fr; gap:6px 16px; font-size:12.3px;}
-  .clientinfo .ci-grid .k{color:var(--muted); white-space:nowrap;}
-  .clientinfo .ci-grid .v{color:var(--ink); font-weight:500;}
+  .clientinfo{padding:24px 44px 22px; border-bottom:3px solid var(--gold); background:var(--navy); background:linear-gradient(135deg, var(--navy) 0%, var(--navy-light) 100%);}
+  .clientinfo .ci-name{font-family:'Noto Serif KR',serif; font-weight:700; font-size:22px; color:#fff; margin-bottom:14px; letter-spacing:0.3px;}
+  .clientinfo .ci-grid{display:grid; grid-template-columns:64px 1fr 64px 1fr; gap:8px 16px; font-size:12.8px;}
+  .clientinfo .ci-grid .k{color:#C9D6CC; font-weight:700; white-space:nowrap;}
+  .clientinfo .ci-grid .v{color:#fff; font-weight:600;}
   .clientinfo .ci-grid .v.span3{grid-column:span 3;}
   section{padding:26px 44px 0;}
   h2{font-family:'Noto Serif KR',serif; font-size:15.5px; color:var(--navy); border-left:4px solid var(--gold); padding-left:10px; margin:0 0 14px; display:flex; align-items:center; gap:8px;}
@@ -75,6 +75,9 @@
   .card{flex:1; min-width:180px; border:1px solid var(--line); background:#fff; padding:16px 18px; border-radius:3px;}
   .card .label{font-size:11px; color:var(--muted); margin-bottom:6px;}
   .card .num{font-size:21px; font-weight:700; color:var(--navy); font-family:'Noto Serif KR',serif;}
+  .card-hero{flex:1.4; border:2px solid var(--gold); background:#FFFBF2; box-shadow:0 2px 6px rgba(184,134,60,0.18);}
+  .card-hero .label{color:var(--gold); font-weight:700;}
+  .card-hero .num{font-size:28px;}
   .card .delta{font-size:11.5px; margin-top:6px; font-weight:500;}
   .up{color:var(--burgundy);} .down{color:var(--teal);} .flat{color:var(--muted);}
 
@@ -220,7 +223,7 @@ async function ensurePdfWorker(){
 const FIELD_LABELS = {
   companyName:'상호(법인명)', bizNo:'사업자등록번호', repName:'대표자', address:'사업장 주소',
   bizType:'업태', bizItem:'종목', periodLabel:'신고기간', filedDate:'신고(접수)일',
-  salesInvoice:'과세-세금계산서발급분(1)', salesOther:'과세-기타(4)',
+  salesInvoice:'과세-세금계산서발급분(1)', salesCard:'과세-신용카드·현금영수증발행분(3)', salesOther:'과세-기타(4)',
   zeroInvoice:'영세율-세금계산서발급분(5)', zeroOther:'영세율-기타(6)',
   taxBase:'과세표준합계(9)', outputTax:'매출세액㉮',
   purchaseGeneral:'매입-일반매입(10)', purchaseFixed:'매입-고정자산매입(12)', purchaseOther15:'그밖의공제매입세액(15)',
@@ -514,7 +517,10 @@ function parseVatText(text){
   f.filedDate = m ? `${m[1]}.${String(m[2]).padStart(2,'0')}.${String(m[3]).padStart(2,'0')}` : '';
 
   // 사업장 주소
+  // 사업장 주소: "전자우편주소"가 바로 이어붙는 걸 기본으로 삼되, 서식에 따라
+  // 다르게 줄바꿈되는 경우를 대비해 폴백 패턴을 추가로 시도한다.
   m = text.match(/사업장\s*주소\s+([^\n]+?)\s*전자우편주소/);
+  if(!m) m = text.match(/사업장\s*주소\s+([^\n]+)/);
   f.address = m ? m[1].trim() : '';
 
   // 업태/종목: 부속서류 여러 곳에 "업태 ... 종목 ..." 형태로 반복 등장하는데
@@ -532,6 +538,7 @@ function parseVatText(text){
   }
 
   f.salesInvoice = firstNum(text,'1');
+  f.salesCard    = firstNum(text,'3');
   f.salesOther   = firstNum(text,'4');
   f.zeroInvoice  = firstNum(text,'5');
   f.zeroOther    = firstNum(text,'6');
@@ -645,6 +652,7 @@ function renderInvoiceList(){
         <div class="actions">
           <input type="file" accept="application/pdf" id="invfile_${s.kind}">
           <button class="btn btn-outline" onclick="document.getElementById('invfile_${s.kind}').click()">📎 업로드</button>
+          <button class="btn btn-outline" id="invdrive_${s.kind}" ${driveToken?'':'disabled'}>☁️ 드라이브에서 선택</button>
           ${d ? '<button class="btn btn-danger" title="삭제" onclick="removeInvoiceDoc(\''+s.kind+'\')">🗑</button>' : ''}
         </div>
       </div>`;
@@ -652,14 +660,14 @@ function renderInvoiceList(){
   slots.forEach(s=>{
     const inp = document.getElementById('invfile_'+s.kind);
     if(inp) inp.addEventListener('change', e=>handleInvoiceFile(s.kind, e.target.files[0]));
+    const driveBtn = document.getElementById('invdrive_'+s.kind);
+    if(driveBtn) driveBtn.addEventListener('click', ()=>openInvoicePicker(s.kind));
   });
 }
 function removeInvoiceDoc(kind){ invoiceDocs[kind]=null; renderInvoiceList(); }
-async function handleInvoiceFile(expectedKind, file){
-  if(!file) return;
+async function processInvoiceBuffer(expectedKind, buf, fileName){
   try{
     await ensurePdfWorker();
-    const buf = await file.arrayBuffer();
     const result = await extractInvoiceRows(buf);
     if(!result.kind) throw new Error('매출/매입 전자세금계산서 합계표 서식을 인식하지 못했습니다.');
     if(result.rows.length===0){
@@ -668,15 +676,48 @@ async function handleInvoiceFile(expectedKind, file){
       }
       throw new Error('거래처별 명세 행을 찾지 못했습니다.');
     }
-    invoiceDocs[result.kind] = { fileName:file.name, meta:result.meta, rows:result.rows, error:null };
-    if(result.kind !== expectedKind){
-      // 매출 칸에 매입 파일을 올리는 등 반대로 업로드해도 자동으로 올바른 칸에 배치
-    }
+    invoiceDocs[result.kind] = { fileName, meta:result.meta, rows:result.rows, error:null };
   }catch(err){
     console.error(err);
-    invoiceDocs[expectedKind] = { fileName:file.name, meta:{}, rows:[], error: err.message||String(err) };
+    invoiceDocs[expectedKind] = { fileName, meta:{}, rows:[], error: err.message||String(err) };
   }
   renderInvoiceList();
+}
+async function handleInvoiceFile(expectedKind, file){
+  if(!file) return;
+  const buf = await file.arrayBuffer();
+  await processInvoiceBuffer(expectedKind, buf, file.name);
+}
+function openInvoicePicker(expectedKind){
+  if(!driveToken || !pickerLoaded){ alert('먼저 구글 드라이브에 연결해주세요.'); return; }
+  const key = document.getElementById('gApiKey').value.trim();
+  const company = document.getElementById('driveSearchTerm').value.trim()
+    || (periods.find(p=>p.fields && p.fields.companyName) || {}).fields?.companyName
+    || '';
+  const kw = expectedKind==='sales' ? '매출세금계산서' : '매입세금계산서';
+  const term = company ? `${company} ${kw}` : kw;
+  const view = new google.picker.DocsView(google.picker.ViewId.PDFS).setIncludeFolders(true).setSelectFolderEnabled(false);
+  view.setQuery(term);
+  const picker = new google.picker.PickerBuilder()
+    .addView(view)
+    .setOAuthToken(driveToken)
+    .setDeveloperKey(key)
+    .setCallback(async (data)=>{
+      if(data.action === google.picker.Action.PICKED){
+        const file = data.docs[0];
+        try{
+          const res = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {headers:{Authorization:`Bearer ${driveToken}`}});
+          if(!res.ok) throw new Error('드라이브 파일 다운로드 실패: '+res.status);
+          const buf = await res.arrayBuffer();
+          await processInvoiceBuffer(expectedKind, buf, file.name);
+        }catch(err){
+          console.error(err);
+          invoiceDocs[expectedKind] = { fileName:file.name, meta:{}, rows:[], error: err.message||String(err) };
+          renderInvoiceList();
+        }
+      }
+    }).build();
+  picker.setVisible(true);
 }
 
 /* ===================== 구글 드라이브 ===================== */
@@ -696,6 +737,7 @@ document.getElementById('btnDriveConnect').addEventListener('click', ()=>{
       document.getElementById('driveStatus').classList.add('on');
       gapi.load('picker', ()=>{ pickerLoaded=true; });
       renderPeriodList();
+      renderInvoiceList();
     }
   });
   tokenClient.requestAccessToken();
@@ -873,7 +915,7 @@ function generateReport(){
   // 상세비교표
   let detailRows = '';
   const rowsDef = [
-    ['과세 – 세금계산서 발급분','salesInvoice'], ['과세 – 기타','salesOther'],
+    ['과세 – 세금계산서 발급분','salesInvoice'], ['과세 – 신용카드·현금영수증','salesCard'], ['과세 – 기타','salesOther'],
     ['영세율 – 세금계산서','zeroInvoice'], ['영세율 – 기타','zeroOther'],
     ['__total','과세표준 합계','taxBase'], ['__total','매출세액 (㉮)','outputTax'],
     ['매입 – 세금계산서 수취분(합계)','purchaseTotal16'], ['그 중 고정자산 매입','purchaseFixed'],
@@ -924,8 +966,8 @@ function generateReport(){
 
   const cards = `
     <div class="cards">
+      <div class="card card-hero"><div class="label">최근 최종 납부(환급)세액</div><div class="num">${fmt(last.finalPayable)}원</div>${deltaHtml(payableGrowth,'%')}</div>
       <div class="card"><div class="label">최근 과세표준(매출액) 합계</div><div class="num">${fmt(last.taxBase)}원</div>${deltaHtml(salesGrowth,'%')}</div>
-      <div class="card"><div class="label">최근 최종 납부세액</div><div class="num">${fmt(last.finalPayable)}원</div>${deltaHtml(payableGrowth,'%')}</div>
       <div class="card"><div class="label">부가율(납부세액/매출세액)</div><div class="num">${vatRateLast!==null?vatRateLast.toFixed(1)+'%':'-'}</div>${deltaHtml(vatRateDelta,'%p')}</div>
       <div class="card"><div class="label">가산세</div><div class="num">${fmt(last.surtax)||'0'}원</div><span class="delta ${last.surtax?'up':'flat'}">${last.surtax?'발생':'없음'}</span></div>
     </div>`;
