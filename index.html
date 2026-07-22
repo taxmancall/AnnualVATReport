@@ -267,17 +267,18 @@ function pct(n,d){ if(!d) return null; return (n/d)*100; }
 function parseNumStr(s){ if(s===undefined||s===null) return null; const t=String(s).replace(/,/g,'').trim(); if(t==='') return null; const v=Number(t); return isNaN(v)?null:v; }
 
 function firstNum(text, itemNo){
-  const re = new RegExp('\\('+itemNo+'\\)\\s*([\\d,]+)');
+  // 환급세액 등은 음수로 표기되므로(-16,308,529) 앞에 마이너스 부호가 있어도 인식하도록 함
+  const re = new RegExp('\\('+itemNo+'\\)\\s*(-?[\\d,]+)');
   const m = text.match(re);
   return m ? parseNumStr(m[1]) : null;
 }
 function pairAfterSymbol(text, itemNo, symbol){
-  const re = new RegExp('\\('+itemNo+'\\)\\s*([\\d,]+)\\s*'+symbol+'\\s*([\\d,]+)');
+  const re = new RegExp('\\('+itemNo+'\\)\\s*(-?[\\d,]+)\\s*'+symbol+'\\s*(-?[\\d,]+)');
   const m = text.match(re);
   return m ? [parseNumStr(m[1]), parseNumStr(m[2])] : [null,null];
 }
 function afterSymbolOnly(text, symbol){
-  const re = new RegExp(symbol+'\\s*([\\d,]+)');
+  const re = new RegExp(symbol+'\\s*(-?[\\d,]+)');
   const m = text.match(re);
   return m ? parseNumStr(m[1]) : null;
 }
@@ -332,12 +333,75 @@ function reconstructLines(items){
 async function extractPdfText(arrayBuffer){
   const pdf = await pdfjsLib.getDocument({data:arrayBuffer}).promise;
   let full = '';
+  let page1Items = null;
   for(let p=1;p<=pdf.numPages;p++){
     const page = await pdf.getPage(p);
     const content = await page.getTextContent();
+    if(p===1) page1Items = content.items;
     full += reconstructLines(content.items) + '\n';
   }
-  return full.replace(/[ \t]+/g,' ');
+  return {text: full.replace(/[ \t]+/g,' '), page1Items};
+}
+
+// 부가가치세법 시행규칙 [별지 제21호서식]은 홈택스가 생성하는 고정 좌표 서식이라
+// "상호"/"성명"/"사업장 주소" 라벨과 그 값이 표시되는 x/y 좌표가 모든 사업자에게 동일하다.
+// 반면 텍스트를 줄 단위로 단순 복원하면(reconstructLines) 상호가 길어 줄바꿈되거나 값 줄이
+// 라벨 줄의 위/아래에 걸치는 경우 순서가 뒤섞여버려서(예: 상호값이 성명값과 뒤섞이거나
+// 세무대리인 정보를 잘못 잡는 등) 정규식만으로는 안정적으로 못 잡는다.
+// 그래서 pdf.js 아이템의 실제 x/y 좌표를 직접 이용해 상호/성명/사업장주소 값을 재구성한다.
+// (좌표가 서식과 다르면(즉, 이 서식이 아니면) 라벨을 못 찾아 null을 반환하고, 그 경우
+//  호출부에서 기존 정규식 기반 파싱으로 자동 폴백한다.)
+function extractHeaderFieldsFromItems(items){
+  if(!items || !items.length) return null;
+  const chars = items.filter(it=>it && it.str && it.str.trim())
+    .map(it=>({str:it.str, x:it.transform[4], y:it.transform[5], w:it.width||0}));
+  if(!chars.length) return null;
+
+  // "상"(x≈100.1) "호"(x≈115.1)가 같은 줄(y≈710.6)에 있는지로 이 서식인지 확인
+  const label상 = chars.find(c=>c.str==='상' && Math.abs(c.x-100.1)<4);
+  const label호 = label상 && chars.find(c=>c.str==='호' && Math.abs(c.x-115.1)<4 && Math.abs(c.y-label상.y)<2.5);
+  if(!label상 || !label호) return null;
+  const nameLabelY = label상.y;
+
+  function assembleRows(list, crossRowSpace){
+    if(!list.length) return '';
+    list.sort((a,b)=> b.y-a.y || a.x-b.x);
+    let out=''; let prevY=null; let prevEnd=null;
+    list.forEach(c=>{
+      if(prevY!==null && Math.abs(c.y-prevY)>2.5){
+        if(crossRowSpace) out+=' ';
+      } else if(prevEnd!==null && (c.x-prevEnd)>2){
+        out+=' ';
+      }
+      out+=c.str;
+      prevEnd = c.x + c.w;
+      prevY = c.y;
+    });
+    return out.replace(/\s+/g,' ').trim();
+  }
+
+  // 상호값/성명값 컬럼: 라벨 줄 기준 위아래 서너 줄(±12pt) 범위, x는 고정된 값 칸 구간
+  const nameYMin = nameLabelY - 12, nameYMax = nameLabelY + 2;
+  const companyChars = chars.filter(c=>c.y>=nameYMin && c.y<=nameYMax && c.x>=132 && c.x<228);
+  const repChars = chars.filter(c=>c.y>=nameYMin && c.y<=nameYMax && c.x>=265 && c.x<333);
+  // 상호/성명 값은 칸 너비 때문에 단어 중간에서 줄바꿈되는 경우가 대부분이라 줄 사이 공백을 넣지 않는다
+  const companyName = assembleRows(companyChars, false);
+  const repName = assembleRows(repChars, false);
+
+  // 사업장 주소: "전자우편주소" 라벨(고정 좌표, 상호 라벨 기준 y가 약 51pt 아래)을 앵커로 삼아
+  // 그 위/아래 줄에 걸친 주소값을 모은다. 주소는 단어/구획 경계에서 줄바꿈되는 경우가 대부분이라
+  // 줄 사이에 공백을 넣는다.
+  let address = '';
+  const emailAnchorY = nameLabelY - 51;
+  const label전 = chars.find(c=>c.str==='전' && Math.abs(c.y-emailAnchorY)<4 && c.x>330 && c.x<350);
+  if(label전){
+    const addrLabelY = label전.y;
+    const addrYMin = addrLabelY - 12, addrYMax = addrLabelY + 12;
+    const addrChars = chars.filter(c=>c.y>=addrYMin && c.y<=addrYMax && c.x>=132 && c.x<330);
+    address = assembleRows(addrChars, true);
+  }
+
+  return {companyName, repName, address};
 }
 
 /* ===================== 매출/매입 전자세금계산서 합계표 파싱 ===================== */
@@ -514,7 +578,7 @@ async function extractInvoiceRows(arrayBuffer){
   return {kind: docKind, meta, rows: allRows, sawDetailTitle, sawDetailTable};
 }
 
-function parseVatText(text){
+function parseVatText(text, page1Items){
   const f = {};
 
   // 신고기간
@@ -524,31 +588,39 @@ function parseVatText(text){
     f._sortKey = `${m[1]}${String(m[3]).padStart(2,'0')}${String(m[4]).padStart(2,'0')}`;
   } else { f.periodLabel=''; f._sortKey='999999'; }
 
-  // 상호(법인명)·성명(대표자명): 실제 신고서에서는 "상 호\n(법인명)\n<상호가 여러 줄로
-  // 단어 중간에서 줄바꿈될 수 있음>\n성 명\n(대표자명)\n<대표자명, 공동대표는 "김OO.현OO철"처럼
-  // 마침표가 들어가거나 역시 줄바꿈될 수 있음>\n사업자등록번호 ..." 형태로 나오는 경우가 많아,
-  // 라벨들을 기준으로 그 사이 전체를 캡처한다.
-  // (내부 줄바꿈은 칸 너비 때문에 단어 중간에서 끊기는 경우가 대부분이라 공백 없이 이어붙인다)
-  m = text.match(/상\s*호\s*\(?\s*법\s*인\s*명\s*\)?\s*([\s\S]{1,60}?)\s*성\s*명\s*\(?\s*대\s*표\s*자\s*명\s*\)?\s*([\s\S]{1,30}?)\s*사업자등록번호/);
-  if(m){
-    f.companyName = m[1].replace(/\n+/g,'').replace(/\s+/g,' ').trim();
-    f.repName = m[2].replace(/\n+/g,'').replace(/\s+/g,' ').trim();
+  // 상호(법인명)·성명(대표자명)·사업장 주소: 텍스트를 줄 단위로 복원하면(reconstructLines) 홈택스
+  // 서식 특성상 라벨 줄과 값 줄이 위/아래로 뒤섞여 순서가 깨지는 경우가 많아(예: 상호가 길어
+  // 다음 줄로 넘어가거나, 세무대리인 정보와 뒤섞이는 등) 정규식만으로는 안정적으로 못 잡는다.
+  // 그래서 이 서식(별지 제21호서식)의 고정 좌표를 이용해 pdf.js 아이템에서 직접 값을 재구성하는
+  // 방법을 우선 시도하고, 좌표 정보가 없거나(page1Items 미제공) 이 서식이 아니면(라벨을 못 찾으면)
+  // 기존 정규식 기반 파싱으로 자동 폴백한다.
+  const coordFields = extractHeaderFieldsFromItems(page1Items);
+
+  if(coordFields && coordFields.companyName){
+    f.companyName = coordFields.companyName;
+    f.repName = coordFields.repName;
   } else {
-    f.companyName=''; f.repName='';
-  }
-  // 위 패턴이 안 맞는 서식(예: 사업장현황명세서 등)을 위한 폴백. "세무대리인 성명 ... 사업자등록번호"
-  // 블록을 잘못 잡지 않도록, 더 구체적인 "상호(법인명)...성명" 패턴을 먼저 시도한다.
-  if(!f.companyName){
-    m = text.match(/상\s*호\s*\(법인명\)\s*([^\s][^성]{0,30}?)\s*성\s*명/);
-    f.companyName = m ? m[1].replace(/\n+/g,'').replace(/\s+/g,' ').trim() : '';
-  }
-  if(!f.companyName){
-    m = text.match(/\n([^\n]+?)\s+([가-힣]{2,4})\s+사업자등록번호\s*\d{3}-\d{2}-\d{5}/);
-    // "세무대리인" 블록(성명/사업자등록번호가 나란히 나오는 다른 인적사항)을 오검출하지 않도록
-    // 캡처값이 라벨 그 자체("성 명" 등)인 경우는 버린다
-    if(m && !/^성\s*명$/.test(m[1].trim())){
-      f.companyName = m[1].trim();
-      f.repName = m[2].trim();
+    m = text.match(/상\s*호\s*\(?\s*법\s*인\s*명\s*\)?\s*([\s\S]{1,60}?)\s*성\s*명\s*\(?\s*대\s*표\s*자\s*명\s*\)?\s*([\s\S]{1,30}?)\s*사업자등록번호/);
+    if(m){
+      f.companyName = m[1].replace(/\n+/g,'').replace(/\s+/g,' ').trim();
+      f.repName = m[2].replace(/\n+/g,'').replace(/\s+/g,' ').trim();
+    } else {
+      f.companyName=''; f.repName='';
+    }
+    // 위 패턴이 안 맞는 서식(예: 사업장현황명세서 등)을 위한 폴백. "세무대리인 성명 ... 사업자등록번호"
+    // 블록을 잘못 잡지 않도록, 더 구체적인 "상호(법인명)...성명" 패턴을 먼저 시도한다.
+    if(!f.companyName){
+      m = text.match(/상\s*호\s*\(법인명\)\s*([^\s][^성]{0,30}?)\s*성\s*명/);
+      f.companyName = m ? m[1].replace(/\n+/g,'').replace(/\s+/g,' ').trim() : '';
+    }
+    if(!f.companyName){
+      m = text.match(/\n([^\n]+?)\s+([가-힣]{2,4})\s+사업자등록번호\s*\d{3}-\d{2}-\d{5}/);
+      // "세무대리인" 블록(성명/사업자등록번호가 나란히 나오는 다른 인적사항)을 오검출하지 않도록
+      // 캡처값이 라벨 그 자체("성 명" 등)인 경우는 버린다
+      if(m && !/^성\s*명$/.test(m[1].trim())){
+        f.companyName = m[1].trim();
+        f.repName = m[2].trim();
+      }
     }
   }
 
@@ -560,15 +632,19 @@ function parseVatText(text){
   m = text.match(/(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일\s*\n[\s\S]{0,200}?신고인\s*:/);
   f.filedDate = m ? `${m[1]}.${String(m[2]).padStart(2,'0')}.${String(m[3]).padStart(2,'0')}` : '';
 
-  // 사업장 주소: "사업장 주소지"(전화번호 관련 필드)와 혼동하지 않도록 뒤에 공백을 요구하고,
-  // 주소 값도 칸 너비 때문에 여러 줄로 줄바꿈되는 경우가 많아 "전자우편주소" 라벨 전까지
-  // 여러 줄에 걸쳐 캡처한 뒤 줄바꿈을 공백으로 치환해 하나의 주소로 합친다.
-  m = text.match(/사업장\s*주소\s+([\s\S]{1,120}?)\s*전자우편주소/);
-  if(!m) m = text.match(/사업장\s*주소\s+([^\n]+)/);
-  f.address = m ? m[1].replace(/\n+/g,' ').replace(/\s+/g,' ').trim() : '';
-  // 사업장 주소가 실제로는 빈칸이라 바로 옆 "전자우편주소" 라벨 텍스트가
-  // 그대로 캡처되는 경우가 있어(주소값 없음), 이 경우 빈 값으로 처리
-  if(/^전자우편주소/.test(f.address)) f.address = '';
+  if(coordFields && coordFields.address){
+    f.address = coordFields.address;
+  } else {
+    // 사업장 주소: "사업장 주소지"(전화번호 관련 필드)와 혼동하지 않도록 뒤에 공백을 요구하고,
+    // 주소 값도 칸 너비 때문에 여러 줄로 줄바꿈되는 경우가 많아 "전자우편주소" 라벨 전까지
+    // 여러 줄에 걸쳐 캡처한 뒤 줄바꿈을 공백으로 치환해 하나의 주소로 합친다.
+    m = text.match(/사업장\s*주소\s+([\s\S]{1,120}?)\s*전자우편주소/);
+    if(!m) m = text.match(/사업장\s*주소\s+([^\n]+)/);
+    f.address = m ? m[1].replace(/\n+/g,' ').replace(/\s+/g,' ').trim() : '';
+    // 사업장 주소가 실제로는 빈칸이라 바로 옆 "전자우편주소" 라벨 텍스트가
+    // 그대로 캡처되는 경우가 있어(주소값 없음), 이 경우 빈 값으로 처리
+    if(/^전자우편주소/.test(f.address)) f.address = '';
+  }
 
   // 업태/종목: "❺ 과세표준명세" 표의 (35)합계 금액 뒤, 업종코드(6자리 숫자) 앞에 오는
   // 한글 텍스트 구간을 통째로 캡처한다. 업태·종목 값도 칸 너비 때문에 여러 줄로
@@ -691,9 +767,9 @@ async function handleFile(uid, file){
   try{
     await ensurePdfWorker();
     const buf = await file.arrayBuffer();
-    const text = await extractPdfText(buf);
+    const {text, page1Items} = await extractPdfText(buf);
     if(!text || text.trim().length < 20) throw new Error('PDF에서 텍스트를 추출하지 못했습니다(스캔본이거나 텍스트 레이어 없음 가능성).');
-    p.fields = parseVatText(text);
+    p.fields = parseVatText(text, page1Items);
     // 과세표준(9)/매출세액(㉮)은 전액 영세율(수출 등) 사업자의 경우 0이 정상값이므로,
     // 값이 없음(null)인 경우만 파싱 실패로 판정한다 (0을 falsy로 오판하지 않도록 !! 대신 명시 비교)
     p.parseOk = (p.fields.taxBase !== null && p.fields.taxBase !== undefined) && (p.fields.outputTax !== null && p.fields.outputTax !== undefined);
@@ -885,9 +961,9 @@ function openPicker(uid){
           const res = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {headers:{Authorization:`Bearer ${driveToken}`}});
           if(!res.ok) throw new Error('드라이브 파일 다운로드 실패: '+res.status);
           const buf = await res.arrayBuffer();
-          const text = await extractPdfText(buf);
+          const {text, page1Items} = await extractPdfText(buf);
           if(!text || text.trim().length < 20) throw new Error('PDF에서 텍스트를 추출하지 못했습니다.');
-          p.fields = parseVatText(text);
+          p.fields = parseVatText(text, page1Items);
           p.parseOk = (p.fields.taxBase !== null && p.fields.taxBase !== undefined) && (p.fields.outputTax !== null && p.fields.outputTax !== undefined);
           if(!p.parseOk) p.parseError = '핵심 항목(과세표준/매출세액) 인식 실패 — 아래 표에서 직접 입력해주세요.';
         }catch(err){ console.error(err); p.parseOk=false; p.parseError = err.message || String(err); }
@@ -1114,7 +1190,7 @@ function generateReport(){
 
   const cards = `
     <div class="cards">
-      <div class="card card-hero"><div class="label">최근 최종 납부(환급)세액</div><div class="num">${fmt(last.finalPayable)}원</div>${deltaHtml(payableGrowth,'%')}</div>
+      <div class="card card-hero"><div class="label">최근 최종 납부(환급)세액</div><div class="num">${last.finalPayable!==null && last.finalPayable<0 ? fmt(Math.abs(last.finalPayable))+'원 환급' : fmt(last.finalPayable)+'원'}</div>${deltaHtml(payableGrowth,'%')}</div>
       <div class="card"><div class="label">최근 과세표준(매출액) 합계</div><div class="num">${fmt(last.taxBase)}원</div>${deltaHtml(salesGrowth,'%')}</div>
       <div class="card"><div class="label">부가율(납부세액/매출세액)</div><div class="num">${vatRateLast!==null?vatRateLast.toFixed(1)+'%':'-'}</div>${deltaHtml(vatRateDelta,'%p')}</div>
       <div class="card"><div class="label">가산세</div><div class="num">${fmt(last.surtax)||'0'}원</div><span class="delta ${last.surtax?'up':'flat'}">${last.surtax?'발생':'없음'}</span></div>
