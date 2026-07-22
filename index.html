@@ -99,6 +99,14 @@
   .infobox-item{font-size:12px; line-height:1.7; color:var(--ink);}
   .infobox-item + .infobox-item{margin-top:10px; padding-top:10px; border-top:1px dashed var(--line);}
   .infobox-item b{color:var(--navy); font-weight:700;}
+  .infobox-item .sublist{margin-top:8px; display:flex; flex-direction:column; gap:4px;}
+  .infobox-item .sublist .row{display:flex; gap:8px; align-items:baseline;}
+  .infobox-item .sublist .tag{flex:0 0 68px; font-size:10.5px; font-weight:700; padding:1px 6px; border-radius:2px; text-align:center;}
+  .infobox-item .sublist .tag.ok{background:#E4F0E8; color:var(--navy);}
+  .infobox-item .sublist .tag.no{background:#F3E4E4; color:var(--burgundy);}
+  .infobox-link{margin-top:12px; padding-top:12px; border-top:1px dashed var(--line); font-size:12px;}
+  .infobox-link a{color:var(--navy); font-weight:700; text-decoration:none;}
+  .infobox-link a:hover{text-decoration:underline;}
   .closing-note{margin:26px 44px 0; text-align:right; font-family:'Noto Serif KR',serif; font-size:12.5px; color:var(--gold); font-style:italic;}
 
   @media print{
@@ -720,7 +728,7 @@ function renderReview(){
     html += `<tr><td class="label">${FIELD_LABELS[k]}</td>` + sorted.map(p=>{
       const v = p.fields[k];
       const bad = (v===null || v===undefined);
-      return `<td><input class="${bad?'bad':''}" data-uid="${p.uid}" data-k="${k}" value="${v!==null&&v!==undefined?v:''}"></td>`;
+      return `<td><input class="${bad?'bad':''}" data-uid="${p.uid}" data-k="${k}" value="${v!==null&&v!==undefined?fmt(v):''}"></td>`;
     }).join('') + '</tr>';
   });
   table.innerHTML = html;
@@ -729,7 +737,7 @@ function renderReview(){
       const uid = e.target.dataset.uid, k = e.target.dataset.k;
       const p = periods.find(x=>x.uid===uid);
       if(['companyName','bizNo','repName','address','bizType','bizItem','periodLabel','filedDate'].includes(k)) p.fields[k]=e.target.value;
-      else { p.fields[k] = parseNumStr(e.target.value); e.target.classList.toggle('bad', p.fields[k]===null); }
+      else { p.fields[k] = parseNumStr(e.target.value); e.target.classList.toggle('bad', p.fields[k]===null); if(p.fields[k]!==null) e.target.value = fmt(p.fields[k]); }
     });
   });
   updateGenerateBtn();
@@ -934,7 +942,14 @@ function generateReport(){
       <div class="infobox">
         <div class="infobox-item"><b>세금계산서 발행·수취 기한</b> 거래 발생일이 속한 달의 다음달 10일까지 세금계산서를 발행·수취해야 합니다. 이 기한을 넘기면 지연발급·지연수취 가산세가 발생하니 미리 챙겨주세요.</div>
         <div class="infobox-item"><b>부가가치세 절세의 시작</b> 부가가치세 절세는 세금계산서·신용카드매출전표·현금영수증 등 적격증빙을 빠짐없이 받아두는 것에서 시작합니다.</div>
-        <div class="infobox-item"><b>매입세액 공제, 출발점은 사업관련 경비</b> 사업과 관련된 지출이어야 매입세액 공제가 가능합니다. 직원이 있다면 식사·커피 등은 복리후생비로 공제받을 수 있고, 차량은 경차·화물트럭·9인승 이상 승합차(카니발 등)이면 일반 승용차와 달리 매입세액 공제가 가능합니다.</div>
+        <div class="infobox-item"><b>매입세액 공제, 출발점은 사업관련 경비</b> 사업과 관련된 지출이어야 매입세액 공제가 가능합니다. 직원이 있다면 식사·커피 등은 복리후생비로 공제받을 수 있습니다.</div>
+        <div class="infobox-item"><b>차량 관련 매입세액 공제 여부</b>
+          <div class="sublist">
+            <div class="row"><span class="tag ok">공제 가능</span><span>경차, 화물트럭, 9인승 이상 승합차(카니발 등)</span></div>
+            <div class="row"><span class="tag no">공제 불가능</span><span>일반 승용차 등 8인승 이하 비영업용 소형승용차</span></div>
+          </div>
+        </div>
+        <div class="infobox-link"><a href="https://taxmancall.com/card/" target="_blank" rel="noopener">🔗 법인·사업자 카드 사용 세무 가이드 — 업종별 부가세 공제 여부 직접 확인하기</a></div>
       </div>
     </section>`;
 
