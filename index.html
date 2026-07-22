@@ -525,25 +525,31 @@ function parseVatText(text){
   } else { f.periodLabel=''; f._sortKey='999999'; }
 
   // 상호(법인명)·성명(대표자명): 실제 신고서에서는 "상 호\n(법인명)\n<상호가 여러 줄로
-  // 단어 중간에서 줄바꿈될 수 있음>\n성 명\n(대표자명) <성명> 사업자등록번호 ..." 형태로
-  // 나오는 경우가 많아, 두 라벨을 기준으로 그 사이 전체를 캡처한다.
-  // (상호 안의 줄바꿈은 칸 너비 때문에 단어 중간에서 끊기는 경우가 대부분이라 공백 없이 이어붙인다)
-  m = text.match(/상\s*호\s*\(?\s*법\s*인\s*명\s*\)?\s*([\s\S]{1,60}?)\s*성\s*명\s*\(?\s*대\s*표\s*자\s*명\s*\)?\s*([가-힣]{2,12})\s*사업자등록번호/);
+  // 단어 중간에서 줄바꿈될 수 있음>\n성 명\n(대표자명)\n<대표자명, 공동대표는 "김OO.현OO철"처럼
+  // 마침표가 들어가거나 역시 줄바꿈될 수 있음>\n사업자등록번호 ..." 형태로 나오는 경우가 많아,
+  // 라벨들을 기준으로 그 사이 전체를 캡처한다.
+  // (내부 줄바꿈은 칸 너비 때문에 단어 중간에서 끊기는 경우가 대부분이라 공백 없이 이어붙인다)
+  m = text.match(/상\s*호\s*\(?\s*법\s*인\s*명\s*\)?\s*([\s\S]{1,60}?)\s*성\s*명\s*\(?\s*대\s*표\s*자\s*명\s*\)?\s*([\s\S]{1,30}?)\s*사업자등록번호/);
   if(m){
     f.companyName = m[1].replace(/\n+/g,'').replace(/\s+/g,' ').trim();
-    f.repName = m[2].trim();
+    f.repName = m[2].replace(/\n+/g,'').replace(/\s+/g,' ').trim();
   } else {
     f.companyName=''; f.repName='';
   }
-  // 위 패턴이 안 맞는 서식(예: 사업장현황명세서 등)을 위한 폴백
-  if(!f.companyName){
-    m = text.match(/\n([^\n]+?)\s+([가-힣]{2,4})\s+사업자등록번호\s*\d{3}-\d{2}-\d{5}/);
-    f.companyName = m ? m[1].trim() : '';
-    f.repName = m ? m[2].trim() : f.repName;
-  }
+  // 위 패턴이 안 맞는 서식(예: 사업장현황명세서 등)을 위한 폴백. "세무대리인 성명 ... 사업자등록번호"
+  // 블록을 잘못 잡지 않도록, 더 구체적인 "상호(법인명)...성명" 패턴을 먼저 시도한다.
   if(!f.companyName){
     m = text.match(/상\s*호\s*\(법인명\)\s*([^\s][^성]{0,30}?)\s*성\s*명/);
-    f.companyName = m ? m[1].trim() : '';
+    f.companyName = m ? m[1].replace(/\n+/g,'').replace(/\s+/g,' ').trim() : '';
+  }
+  if(!f.companyName){
+    m = text.match(/\n([^\n]+?)\s+([가-힣]{2,4})\s+사업자등록번호\s*\d{3}-\d{2}-\d{5}/);
+    // "세무대리인" 블록(성명/사업자등록번호가 나란히 나오는 다른 인적사항)을 오검출하지 않도록
+    // 캡처값이 라벨 그 자체("성 명" 등)인 경우는 버린다
+    if(m && !/^성\s*명$/.test(m[1].trim())){
+      f.companyName = m[1].trim();
+      f.repName = m[2].trim();
+    }
   }
 
   m = text.match(/사업자등록번호\s*([\d]{3}-[\d]{2}-[\d]{5})/);
@@ -611,6 +617,17 @@ function parseVatText(text){
   f.payable  = afterSymbolOnly(text,'㉰');
   const p29 = text.match(/\(29\)\s*㉹\s*([\d,]+)/); f.surtax = p29?parseNumStr(p29[1]):afterSymbolOnly(text,'㉹');
   f.finalPayable = firstNum(text,'30');
+  // 총괄납부(사업자단위과세 등) 사업자는 (30)이 이 사업장 단독 계산액일 뿐이고,
+  // 실제로 납부해야 할 금액은 바로 아래 "총괄 납부 사업자가 납부할 세액(환급받을 세액)"란임.
+  // 이 값이 존재하고 0이 아니면 최종 납부세액으로 우선 사용한다.
+  {
+    const tm = text.match(/총괄\s*납부\s*사업자가\s*납부할\s*세액\s*\(\s*환급받을\s*세액\s*\)\s*([\-\d,]+)/);
+    const totalPay = tm ? parseNumStr(tm[1]) : null;
+    f.consolidatedPayable = totalPay;
+    if(totalPay !== null && totalPay !== 0){
+      f.finalPayable = totalPay;
+    }
+  }
 
   const car = threeNumsAfterAnchor(text,'자동차 구입'); f.ndCar = car[1];
   const land = threeNumsAfterAnchor(text,'토지의 자본적 지출'); f.ndLand = land[1];
@@ -1087,6 +1104,9 @@ function generateReport(){
   }
   if(last.purchaseFixed){
     findings += `<li><span class="tag">고정자산</span>고정자산 매입 ${fmt(last.purchaseFixed)}원 발생 — 건물 등 감가상각자산 취득명세서 신고 여부 확인.</li>`;
+  }
+  if(last.consolidatedPayable !== null && last.consolidatedPayable !== undefined && last.consolidatedPayable !== 0){
+    findings += `<li><span class="tag">총괄납부</span>총괄납부 사업자로, 최근 기간 "최종 납부(환급)세액"은 이 사업장 단독 (30) 세액이 아니라 전체 사업장 합산 "총괄 납부 사업자가 납부할 세액" ${fmt(last.consolidatedPayable)}원을 기준으로 표시했습니다.</li>`;
   }
   if(findings===''){ findings = '<li><span class="tag">참고</span>파싱된 수치 기준으로 특이 변동 사항이 자동 감지되지 않았습니다. 상세표를 직접 검토해주세요.</li>'; }
 
