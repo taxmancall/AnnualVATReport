@@ -522,6 +522,9 @@ function parseVatText(text){
   m = text.match(/사업장\s*주소\s+([^\n]+?)\s*전자우편주소/);
   if(!m) m = text.match(/사업장\s*주소\s+([^\n]+)/);
   f.address = m ? m[1].trim() : '';
+  // 사업장 주소가 실제로는 빈칸이라 바로 옆 "전자우편주소" 라벨 텍스트가
+  // 그대로 캡처되는 경우가 있어(주소값 없음), 이 경우 빈 값으로 처리
+  if(/^전자우편주소/.test(f.address)) f.address = '';
 
   // 업태/종목: 부속서류 여러 곳에 "업태 ... 종목 ..." 형태로 반복 등장하는데
   // 코드번호·금액 열과 뒤섞여 잡히는 경우가 있어, 순수 한글 값만 오는 첫 매칭을 채택
@@ -856,6 +859,8 @@ document.getElementById('btnReset').addEventListener('click', ()=>{
 function generateReport(){
   const list = periods.filter(p=>p.fields).sort((a,b)=>(a.fields._sortKey||'9').localeCompare(b.fields._sortKey||'9'));
   const F = list.map(p=>p.fields);
+  // 세금계산서 수취분 합계 = 일반매입(10) + 고정자산 매입(12). ※(16)은 여기에 예정신고누락분(13)·매입자발행세금계산서(14)·그 밖의 공제매입세액(15)까지 합산된 '매입세액 합계'이므로 세금계산서 수취분과 다름(부가가치세 신고서 서식 기준)
+  F.forEach(x=>{ x.purchaseInvoiceTotal = (x.purchaseGeneral||0) + (x.purchaseFixed||0); });
   const n = F.length;
   const co = F[n-1].companyName || F[0].companyName || '';
   const biz = F[n-1].bizNo || F[0].bizNo || '';
@@ -918,7 +923,8 @@ function generateReport(){
     ['과세 – 세금계산서 발급분','salesInvoice'], ['과세 – 신용카드·현금영수증','salesCard'], ['과세 – 기타','salesOther'],
     ['영세율 – 세금계산서','zeroInvoice'], ['영세율 – 기타','zeroOther'],
     ['__total','과세표준 합계','taxBase'], ['__total','매출세액 (㉮)','outputTax'],
-    ['매입 – 세금계산서 수취분(합계)','purchaseTotal16'], ['그 중 고정자산 매입','purchaseFixed'],
+    ['매입 – 세금계산서 수취분(10+12)','purchaseInvoiceTotal'], ['그 중 고정자산 매입(12)','purchaseFixed'],
+    ['매입 – 그 밖의 공제매입세액(15)','purchaseOther15'], ['__total','매입세액 합계(16)','purchaseTotal16'],
     ['공제받지 못할 매입세액(공급가액)','nonDeductible'], ['__total','매입세액 차감계 (㉯)','inputTax'],
     ['__total','최종 납부(환급)세액','finalPayable'], ['가산세액','surtax'],
     ['매출처수','salesParties'], ['매입처수','purchaseParties'],
