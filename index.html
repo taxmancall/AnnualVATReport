@@ -579,7 +579,11 @@ async function extractInvoiceRows(arrayBuffer){
     let headerY = null;
     for(const r of rowsForHeader){
       const t = r.items.map(i=>i.str).join('');
-      if(t.includes('공급가액') && (t.includes('상호')||t.includes('세액'))) headerY = r.y;
+      // 총합계(요약)표 헤더도 "공급가액"+"세액"을 포함하고 있어 예전 조건으로는 두 헤더가 둘 다
+      // 걸려서, items 순서에 따라 엉뚱한(요약표) 헤더의 x좌표를 상세표 컬럼 경계로 써버리는
+      // 버그가 있었다. "상호"는 상세표 헤더에만 있으므로 이를 필수 조건으로 바꾸고,
+      // 처음 찾은 행에서 바로 멈춰 순서에 따라 결과가 바뀌지 않도록 한다.
+      if(t.includes('공급가액') && t.includes('상호')){ headerY = r.y; break; }
     }
     if(headerY===null) continue;
     sawDetailTable = true;
