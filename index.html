@@ -33,11 +33,10 @@
   .clientinfo .ci-grid .v{color:#fff; font-weight:600;}
   .clientinfo .ci-grid .v.span3{grid-column:span 3;}
 
-  .vat-bigtitle{padding:56px 44px 0; text-align:center;}
+  .vat-bigtitle{padding:70px 44px 0; text-align:center;}
   .vat-bigtitle .eyebrow2{font-size:12px; letter-spacing:3px; color:var(--gold); font-weight:700; text-transform:uppercase; margin-bottom:16px;}
-  .vat-bigtitle h1.big{font-family:'Noto Serif KR',serif; font-size:32px; font-weight:700; color:var(--navy); margin:0; letter-spacing:0.5px; line-height:1.45;}
-  .page1-frame{display:flex; flex-direction:column; min-height:640px;}
-  .page1-bottom{margin-top:auto;}
+  .vat-bigtitle h1.big{font-family:'Noto Serif KR',serif; font-size:26px; font-weight:700; color:var(--navy); margin:0; letter-spacing:0.3px; line-height:1.4; white-space:nowrap;}
+  .page1-frame{display:flex; flex-direction:column; justify-content:space-between; min-height:900px;}
   .pagebreak{page-break-before:always; break-before:page;}
   section{padding:26px 44px 0;}
   h2{font-family:'Noto Serif KR',serif; font-size:15.5px; color:var(--navy); border-left:4px solid var(--gold); padding-left:10px; margin:0 0 14px; display:flex; align-items:center; gap:8px;}
@@ -83,6 +82,7 @@
   td.label, th.label{text-align:left; background:#EAF6F1; font-weight:700; color:var(--navy); white-space:nowrap;}
   tr.total td{font-weight:700; background:#FFF6E4;}
   tr.groupsep td{background:var(--blue); color:#fff; font-weight:700; font-size:11px; text-align:left;}
+  table.tbl-sales th{background:linear-gradient(120deg,#1E4F8C 0%,#2E6FF2 100%);}
   .review-table input{width:100%; border:1px solid transparent; background:transparent; text-align:right; font-size:12px; font-variant-numeric:tabular-nums; padding:2px;}
   .review-table input:focus{border-color:var(--gold); background:#FFFBF2; outline:none;}
   .review-table input.bad{background:#FDEBEA;}
@@ -1218,13 +1218,10 @@ function generateReport(){
     if(!m) return null;
     return { year:+m[1], startMonth:+m[2], endMonth:+m[4] };
   }
-  const rangeFirst = parsePeriodRange(F[0].periodLabel);
   const rangeLast = parsePeriodRange(F[n-1].periodLabel);
   let bigTitle = '부가가치세 신고 분석 보고';
-  if(rangeFirst && rangeLast){
-    bigTitle = (rangeFirst.year===rangeLast.year)
-      ? `${rangeLast.year}년 ${rangeFirst.startMonth}월 ~ ${rangeLast.endMonth}월 부가가치세 신고 분석 보고`
-      : `${rangeFirst.year}년 ${rangeFirst.startMonth}월 ~ ${rangeLast.year}년 ${rangeLast.endMonth}월 부가가치세 신고 분석 보고`;
+  if(rangeLast){
+    bigTitle = `${rangeLast.year}년 ${rangeLast.startMonth}월 ~ ${rangeLast.endMonth}월 부가가치세 신고 분석 보고`;
   }
 
   const last=F[n-1], prev=F[n-2];
@@ -1244,8 +1241,7 @@ function generateReport(){
 
   // 차트 좌표 계산
   const maxVal = Math.max(...F.map(x=>Math.max(x.outputTax||0, x.inputTax||0)))/1e6;
-  const chartTop=40, chartBottom=340, chartH=chartBottom-chartTop;
-  const yScale = v => chartBottom - (v/1e6)*(chartH/Math.ceil(maxVal/20+1)/20*20 ? (chartH/(Math.ceil(maxVal/20)*20)) : 1)*v/1e6*0; // placeholder unused
+  const chartTop=40, chartBottom=230, chartH=chartBottom-chartTop;
   const axisMax = Math.ceil((maxVal*1.15)/20)*20 || 20;
   const yOf = v => chartBottom - (v/1e6)/axisMax*chartH;
   const groupW = 780/n, barW = Math.min(46, groupW/4);
@@ -1265,7 +1261,7 @@ function generateReport(){
     bars += `<rect x="${bx}" y="${outY}" width="${barW}" height="${outH}" fill="#2E5FA3"/>`;
     bars += `<rect x="${bx+barW+8}" y="${inY}" width="${barW}" height="${inH}" fill="#2FA88C"/>`;
     bars += `<rect x="${bx+2*(barW+8)}" y="${payY}" width="${barW}" height="${payH}" fill="#E0A83C"/>`;
-    glabels += `<text x="${bx+barW*1.5+8}" y="360" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2E5FA3">${(x.periodLabel||'').split('(')[0].trim()||('#'+(i+1))}</text>`;
+    glabels += `<text x="${bx+barW*1.5+8}" y="${chartBottom+22}" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2E5FA3">${(x.periodLabel||'').split('(')[0].trim()||('#'+(i+1))}</text>`;
     const rate = pct(x.finalPayable, x.outputTax);
     lines.push([bx+barW*1.5+8, rate!==null ? chartBottom - (rate/40)*chartH : null, rate]);
   });
@@ -1307,6 +1303,7 @@ function generateReport(){
   ndRows += `<tr><td class="label">③ 자동차 구입·유지·임차</td>` + F.map(x=>`<td>${fmt(x.ndCar)}</td>`).join('') + '</tr>';
   ndRows += `<tr><td class="label">⑥ 토지의 자본적 지출 관련</td>` + F.map(x=>`<td>${fmt(x.ndLand)}</td>`).join('') + '</tr>';
   ndRows += `<tr class="total"><td class="label">합계(공급가액)</td>` + F.map(x=>`<td>${fmt(x.nonDeductible)}</td>`).join('') + '</tr>';
+  const ndHasData = F.some(x => (x.ndCar||0)!==0 || (x.ndLand||0)!==0 || (x.nonDeductible||0)!==0);
 
   // 자동 검토의견
   let findings = '';
@@ -1340,9 +1337,19 @@ function generateReport(){
 
   const periodHead = F.map((x,i)=>`<th style="${periodThStyle(i)}">${x.periodLabel||'(미인식)'}</th>`).join('');
 
-  // A~E는 항상 고정으로 나오므로, 그 뒤에 조건부로 붙는 섹션들(F 이후)만 순서대로 문자를 매긴다
-  let __sec = 5;
+  // E 이하는 실제로 렌더링되는 섹션에 한해서만 순서대로 문자를 매기고,
+  // 페이지3(E/F/G 그룹)의 맨 앞에 오는 섹션에만 강제 페이지분할을 건다.
+  let __sec = 4;
   const secL = ()=> String.fromCharCode(65+(__sec++));
+  let __page3Started = false;
+  const pbClass = ()=> __page3Started ? '' : (__page3Started=true, 'pagebreak');
+
+  let eSectionHtml = '';
+  if(ndHasData){
+    eSectionHtml = `<section class="${pbClass()}"><h2><span class="no">${secL()}.</span>공제받지 못할 매입세액 사유별 비교</h2>
+      <table>${ndRows}</table>
+    </section>`;
+  }
 
   // 매출처/매입처 TOP N (선택 업로드된 전자세금계산서 합계표 기준)
   let invoiceSectionHtml = '';
@@ -1359,7 +1366,7 @@ function generateReport(){
       const topShare = grandTotal ? (topTotal/grandTotal*100) : 0;
       const rowsHtml = top.map((r,i)=>`<tr>
           <td style="text-align:center;">${i+1}</td>
-          <td>${r.name||'-'}</td>
+          <td style="text-align:center;">${r.name||'-'}</td>
           <td style="font-variant-numeric:tabular-nums;">${r.bizNo||'-'}</td>
           <td style="text-align:right;">${r.count!=null?fmt(r.count):'-'}</td>
           <td style="text-align:right;">${r.amount!=null?fmt(r.amount)+'원':'-'}</td>
@@ -1369,24 +1376,32 @@ function generateReport(){
       blocks.push(`
         <div style="margin-bottom:18px;">
           <div class="hint" style="margin:-2px 0 8px 0;">${label} 전체 ${d.rows.length}곳 중 상위 ${top.length}곳 · 합계금액 기준 ${topShare.toFixed(1)}% 비중${d.meta.periodLabel?(' · '+d.meta.periodLabel):''}</div>
-          <table>
-            <tr><th style="width:34px;">순위</th><th class="label">상호</th><th>사업자번호</th><th>매수</th><th>공급가액</th><th>세액</th><th>합계금액</th></tr>
+          <table class="${kind==='sales'?'tbl-sales':''}">
+            <tr><th style="width:44px; white-space:nowrap;">순위</th><th style="text-align:center;">상호</th><th>사업자번호</th><th>매수</th><th>공급가액</th><th>세액</th><th>합계금액</th></tr>
             ${rowsHtml}
           </table>
         </div>`);
     });
     if(blocks.length>0){
-      invoiceSectionHtml = `<section><h2><span class="no">${secL()}.</span>매출처·매입처 TOP ${topN}</h2>${blocks.join('')}</section>`;
+      invoiceSectionHtml = `<section class="${pbClass()}"><h2><span class="no">${secL()}.</span>매출처·매입처 TOP ${topN}</h2>${blocks.join('')}</section>`;
     }
   }
 
   // 알아두시면 좋은 정보 (증빙 관리 안내 — 매 보고서에 고정으로 안내)
   const infoSectionHtml = `
-    <section><h2><span class="no">${secL()}.</span>알아두시면 좋은 정보</h2>
+    <section class="${pbClass()}"><h2><span class="no">${secL()}.</span>알아두시면 좋은 정보</h2>
       <div class="infobox">
         <div class="infobox-item"><b>세금계산서 발행·수취 기한</b> 거래 발생일이 속한 달의 다음달 10일까지 세금계산서를 발행·수취해야 합니다. 이 기한을 넘기면 지연발급·지연수취 가산세가 발생하니 미리 챙겨주세요.</div>
         <div class="infobox-item"><b>부가가치세 절세의 시작</b> 부가가치세 절세는 세금계산서·신용카드매출전표·현금영수증 등 적격증빙을 빠짐없이 받아두는 것에서 시작합니다.</div>
-        <div class="infobox-item"><b>매입세액 공제, 출발점은 사업관련 경비</b> 사업과 관련된 지출이어야 매입세액 공제가 가능합니다. 직원이 있다면 식사·커피 등은 복리후생비로 공제받을 수 있습니다.</div>
+        <div class="infobox-item"><b>매입세액 공제, 출발점은 사업관련 경비</b> 사업과 관련된 지출이어야 매입세액 공제가 가능합니다. 주말·공휴일 사용분은 사업관련성 입증이 어려우니 되도록 최소화하는 것이 좋습니다.
+          <div class="sublist">
+            <div class="row"><span class="tag ok">공제 가능</span><span>식비·커피 — 4대보험 가입 직원이 있다면 복리후생비로 공제 가능</span></div>
+            <div class="row"><span class="tag ok">공제 가능</span><span>인터넷 쇼핑 — 구입 물품의 사업관련성에 따라 공제 가능</span></div>
+            <div class="row"><span class="tag no">불공제</span><span>KTX 등 기차·우체국 등기 — 세금계산서 발행 대상 아니어서 매입세액 불공제</span></div>
+            <div class="row"><span class="tag no">불공제</span><span>사업체 휴무일(주말·공휴일) 사용분 — 사업관련성 입증 곤란으로 불공제</span></div>
+            <div class="row"><span class="tag no">불공제</span><span>경조사비·선물 등 접대성 지출 — 기업업무추진비 관련 매입세액(부가가치세법 §39①4호)</span></div>
+          </div>
+        </div>
         <div class="infobox-item"><b>차량 관련 매입세액 공제 여부</b>
           <div class="sublist">
             <div class="row"><span class="tag ok">공제 가능</span><span>경차, 화물트럭, 9인승 이상 승합차(카니발 등)</span></div>
@@ -1403,7 +1418,7 @@ function generateReport(){
         <div class="eyebrow2">VAT Filing Report</div>
         <h1 class="big">${bigTitle}</h1>
       </div>
-      <div class="page1-bottom">
+      <div class="page1-mid">
         <div class="clientinfo">
           <div class="ci-name">${co||'(상호 미인식)'}</div>
           <div class="ci-grid">
@@ -1418,31 +1433,33 @@ function generateReport(){
           <table><tr><th class="label">구분</th>${periodHead}</tr>
           <tr><td class="label">신고(접수)일</td>${F.map(x=>`<td>${x.filedDate||'-'}</td>`).join('')}</tr></table>
         </section>
+      </div>
+      <div class="page1-bottom">
         <section><h2><span class="no">B.</span>핵심지표 요약</h2>${cards}</section>
       </div>
     </div>
 
-    <section class="pagebreak"><h2><span class="no">C.</span>신고내용 상세 비교</h2>
-      <table><tr><th class="label">구분</th>${periodHead}</tr>${detailRows}</table>
-    </section>
-    <section><h2><span class="no">D.</span>매출세액·매입세액·납부세액 및 부가율 추이</h2>
-      <div class="chart-wrap">
-        <svg viewBox="0 0 920 400" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:auto;">
-          <g font-family="Noto Sans KR">${gridlines}</g>
-          ${bars}${glabels}${linePoly}${lineDots}
-        </svg>
-        <div class="legend">
-          <span><i class="swatch" style="background:#2E5FA3;"></i>매출세액</span>
-          <span><i class="swatch" style="background:#2FA88C;"></i>매입세액(차감계)</span>
-          <span><i class="swatch" style="background:#E0A83C;"></i>납부세액</span>
-          <span><i class="swatch" style="background:#D1615C;"></i>부가율(점선)</span>
+    <div class="pagebreak">
+      <section><h2><span class="no">C.</span>신고내용 상세 비교</h2>
+        <table><tr><th class="label">구분</th>${periodHead}</tr>${detailRows}</table>
+      </section>
+      <section><h2><span class="no">D.</span>매출세액·매입세액·납부세액 및 부가율 추이</h2>
+        <div class="chart-wrap">
+          <svg viewBox="0 0 920 280" width="920" height="280" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:auto; display:block;">
+            <g font-family="Noto Sans KR">${gridlines}</g>
+            ${bars}${glabels}${linePoly}${lineDots}
+          </svg>
+          <div class="legend">
+            <span><i class="swatch" style="background:#2E5FA3;"></i>매출세액</span>
+            <span><i class="swatch" style="background:#2FA88C;"></i>매입세액(차감계)</span>
+            <span><i class="swatch" style="background:#E0A83C;"></i>납부세액</span>
+            <span><i class="swatch" style="background:#D1615C;"></i>부가율(점선)</span>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
 
-    <section class="pagebreak"><h2><span class="no">E.</span>공제받지 못할 매입세액 사유별 비교</h2>
-      <table>${ndRows}</table>
-    </section>
+    ${eSectionHtml}
     ${invoiceSectionHtml}
     ${infoSectionHtml}
     <div class="closing-note">10년간 대표님의 사업을 위해 함께해왔습니다. 앞으로도 성실히 챙기겠습니다.</div>
